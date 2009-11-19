@@ -1,0 +1,10 @@
+<package>
+	<name>eyeFileBrowser</name>
+	<category>Utilities</category>
+	<version>2.0</version>
+	<description></description>
+	<author>eyeOS Team</author>
+	<license>GPL</license>
+	<type>Application</type>
+	<icon>index.php?extern=icons/48x48/exec.png&amp;theme=1</icon>
+</package>

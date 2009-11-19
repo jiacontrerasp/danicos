@@ -1,0 +1,10 @@
+<package>
+	<name>eyeDocs</name>
+	<category>Office</category>
+	<version>2.0</version>
+	<description>Rich editor for create documents</description>
+	<author>eyeOS Team</author>
+	<license>GPL</license>
+	<type>Application</type>
+	<icon>index.php?extern=icons/48x48/eyeDocs.png&amp;theme=1</icon>
+</package>

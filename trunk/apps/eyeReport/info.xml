@@ -1,0 +1,10 @@
+<package>
+	<name>eyeReport</name>
+	<category>Misc</category>
+	<version>2.0</version>
+	<description>Simple customizable survey reporting application for eyeOS.</description>
+	<author>Nanawel [nanawel@eyeos.org]</author>
+	<license>GPL</license>
+	<type>Application</type>
+	<icon>index.php?extern=icons/48x48/repositories.png&amp;theme=1</icon>
+</package>

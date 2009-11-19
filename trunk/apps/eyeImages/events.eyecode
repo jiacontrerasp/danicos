@@ -1,0 +1,180 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              1.7
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+define('MAX_IMAGE_SIZE_W',600);
+define('MAX_IMAGE_SIZE_H',500);
+
+
+function eyeImages_on_getImage($params=null) {
+	$file = $GLOBALS['imagePath_HID']->text;
+	if(!$file) {
+		return;
+	}
+	$len = service('vfs','filesize',array($file));
+	$rfile = service('vfs','getRealName',array($file));
+	$info = @getimagesize($rfile);
+	$fp = service('vfs','open',array($file,'r'),1);
+	if(!$fp) {
+		return;
+	}
+	header('Content-Type: '.$info['mime']);
+	header("Content-Length: $len");
+	header("Accept-Ranges: bytes");
+	header("X-Pad: avoid browser bug");
+	$content = fread($fp,$len);
+	echo $content;
+	fclose($fp);
+	exit;
+}
+
+function eyeImages_on_loadImage($params=null) {
+	global $checknum;
+	$file = $params['path'][0];
+	$filename = utf8_basename($file);
+	$rfile = service('vfs','getRealName',array($file));
+	$info = @getimagesize($rfile);
+	
+	if($info[0] > MAX_IMAGE_SIZE_W) {
+		$info[0] = MAX_IMAGE_SIZE_W;
+	} 
+	if($info[1] > MAX_IMAGE_SIZE_H) {
+		$info[1] = MAX_IMAGE_SIZE_H;
+	}
+	
+	if (!$GLOBALS['fullscreen_HID']->text) {
+		$GLOBALS['eyeImages_WND']->setWidth($info[0]+30);
+		$GLOBALS['eyeImages_WND']->setHeight($info[1]+128);
+	}
+	
+	$GLOBALS['image_IFR']->setWidth($GLOBALS['eyeImages_WND']->width-10);
+	$GLOBALS['image_IFR']->setHeight($GLOBALS['eyeImages_WND']->height-98);
+	
+	$GLOBALS['imagePath_HID']->setText($file);
+	$GLOBALS['image_IFR']->setUrl('index.php?checknum='.$checknum.'&msg=getImage');
+	$GLOBALS['eyeImages_WND']->setTitle($filename.' - '.i18n('translate',array('View Images')));
+}
+
+function eyeImages_on_next($params=null) {
+	$file = $GLOBALS['imagePath_HID']->text;
+	$dir = dirname($file);
+	$imglist = vfs('getDirContent', array($dir));
+	
+	$extensions = array(
+		"bmp", "gif", "jpeg", "jpg", "png", "tiff"
+	);
+	
+	$myArray = array();
+	foreach($imglist as $img) {
+		$info = utf8_pathinfo($img);
+		$ext = $info['extension'];
+		
+		foreach($extensions as $e) {
+			if(utf8_strcasecmp($ext, $e) == 0) {
+				$myArray[] = $img;
+			}
+		}
+	}
+	
+	//Get the index
+	for($i=0; $i < count($myArray); $i++) {
+		if(utf8_strcasecmp($myArray[$i], $file) == 0) {
+			break;
+		}
+	}
+
+	if(!isset($myArray[$i+1])) {
+		$newfile = $myArray[0];
+	} else {
+		$newfile = $myArray[$i+1];
+	}
+	eyeImages_on_loadImage(array('path' => array($newfile)));
+}
+
+function eyeImages_on_previous($params=null) {
+	$file = $GLOBALS['imagePath_HID']->text;
+	$dir = dirname($file);
+	$imglist = vfs('getDirContent', array($dir));
+	
+	$extensions = array(
+		"bmp", "gif", "jpeg", "jpg", "png", "tiff"
+	);
+	
+	$myArray = array();
+	foreach($imglist as $img) {
+		$info = utf8_pathinfo($img);
+		$ext = $info['extension'];
+		
+		foreach($extensions as $e) {
+			if(utf8_strcasecmp($ext, $e) == 0) {
+				$myArray[] = $img;
+			}
+		}
+	}
+	
+	//Get the index
+	for($i=0; $i < count($myArray); $i++) {
+		if(utf8_strcasecmp($myArray[$i], $file) == 0) {
+			break;
+		}
+	}
+
+	if(!isset($myArray[$i-1])) {
+		$newfile = $myArray[0];
+	} else {
+		$newfile = $myArray[$i-1];
+	}
+	eyeImages_on_loadImage(array('path' => array($newfile)));
+}
+
+function eyeImages_on_fullscreen($params=null) {
+	global $checknum;
+	
+	$file = $GLOBALS['imagePath_HID']->text;
+	if(!$file) {
+		return;
+	}
+
+	if($GLOBALS['fullscreen_HID']->text == 0) {
+		eyeX('rawjs',array('js' => 'document.getElementById("minimizedAppsLeft").style.zIndex="0";'));
+		eyeX('rawjs',array('js' => 'document.getElementById("minimizedAppsRight").style.zIndex="0";'));
+		eyeX('rawjs',array('js' => 'document.getElementById("minimizedApps").style.zIndex="0";'));
+		proc('launch',array('eyeImages', array($file, 1)));
+		proc('end');
+	} else {
+		eyeX('rawjs',array('js' => 'document.getElementById("minimizedAppsLeft").style.zIndex="10000";'));
+		eyeX('rawjs',array('js' => 'document.getElementById("minimizedAppsRight").style.zIndex="10000";'));
+		eyeX('rawjs',array('js' => 'document.getElementById("minimizedApps").style.zIndex="10000";'));
+		proc('launch',array('eyeImages', array($file)));
+		proc('end');
+	}
+}
+
+
+function eyeImages_on_Message($params="") {
+	reqLib('eyeWidgets','updateContent',$params);
+}
+function eyeImages_on_Close(){
+	proc('end');
+}
+
+?>

@@ -1,0 +1,213 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+abstract class FSIModule {
+	
+	private static $loadedModules = array();
+	
+	protected $moduleName;
+	protected $modulePath;
+	
+	protected $subModules = array();
+	protected $subModulesLoaded = false;
+	
+	protected $classFiles = array();
+	protected $dependencyClassFiles = array();
+	protected $dependencyClassFilesLoaded = false;
+	
+	protected function __construct() {}
+	
+	//=================================================================
+	//			ABSTRACT METHODS
+	//	The following methods need to be overriden by inherited
+	//	module classes.
+	//=================================================================
+	
+	/**
+	 * 
+	 * @return FSIModule
+	 */
+	public abstract static function getInstance();
+	
+	/**
+	 * Loads the file module. May be used to include all additional needed files.
+	 *
+	 * @param array $params
+	 */
+	public abstract function load($params=null);
+	
+	public abstract function unload();
+	
+	/**
+	 * Creates a file object.
+	 *
+	 * @param array $urlParts
+	 * @param array $params
+	 * @return AbstractFile An object if the file can be created with this factory, or NULL otherwise.
+	 * @see AdvancedPathLib::parse_url()
+	 */
+	public abstract function createFileFromUrlParts($urlParts, $params=null);
+	
+	
+	//=================================================================
+	//			NON-ABSTRACT METHODS
+	//=================================================================
+	
+	/**
+	 * TODO
+	 * @return array
+	 */
+	public function getClassFiles() {
+		return $this->classFiles;
+	}
+	
+	/**
+	 * TODO
+	 * @return array
+	 */
+	public function getAllDependencyClassFiles() {
+		return $this->dependencyClassFiles;
+	}
+	
+	/**
+	 * TODO
+	 * @param string $classFile
+	 */
+	public function addDependencyClassFile($classFile) {
+		$this->dependencyClassFiles[] = $classFile;
+	}
+	
+	/**
+	 * TODO
+	 * @param array $classFiles
+	 */
+	public function addAllDependencyClassFiles(array $classFiles) {
+		$this->dependencyClassFiles = array_unique(array_merge($this->dependencyClassFiles, $classFiles));
+	}
+	
+	public final static function createConf() {
+		//TODO
+	}
+	
+	public final static function saveConf($conf) {
+		//TODO
+	}
+	
+	public final static function loadConf() {
+		//TODO
+	}
+	
+	public final static function destroyConf() {
+		//TODO
+	}
+	
+	/**
+	 *
+	 * @return boolean TRUE if the class definition has been successfully loaded, FALSE otherwise
+	 */
+	public function autoLoadClass($className) {
+		// Is the searched class from this module?
+		foreach($this->classFiles as $currentClassFile) {
+			$currentClassName = utf8_basename($currentClassFile);
+			$currentClassName = utf8_substr($currentClassName, 0, utf8_strlen($currentClassName) - utf8_strlen(EYE_CODE_EXTENSION));
+			if (utf8_strcasecmp($className, $currentClassName) === 0) {
+				$this->includeClassDependenciesNow();
+				return true;
+			}
+		}
+		// Otherwise, search in submodules
+		$modules = $this->getSubModules();
+		foreach($modules as $module) {
+			$success = $module->autoLoadClass($className);
+			if ($success) {
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	/**
+	 *
+	 * @return array(FSIModule)
+	 */
+	public function getSubModules() {
+		if (!$this->subModulesLoaded) {
+			$this->subModules = self::getModules($this->modulePath.'/'.$this->moduleName);
+			foreach($this->subModules as $module) {
+				$module->addAllDependencyClassFiles($this->dependencyClassFiles);
+				$module->addAllDependencyClassFiles($this->classFiles);
+			}
+			$this->subModulesLoaded = true;
+		}
+		return $this->subModules;
+	}
+	
+	public final static function getModules($searchPath='/') {
+		$modules =  array();
+		if (is_dir(FSI_MODULES_PATH.$searchPath)) {
+			$moduleFiles = AdvancedPathLib::glob(FSI_MODULES_PATH.$searchPath, '*'.FSI_MODULES_EXTENSION);
+			foreach ($moduleFiles as $modulePath) {
+				$moduleFilename = utf8_basename($modulePath);
+				require_once FSI_MODULES_PATH.$searchPath.'/'.$moduleFilename;
+				
+				$moduleClassName = utf8_substr($moduleFilename, 0, utf8_strlen($moduleFilename) - utf8_strlen(FSI_MODULES_EXTENSION));
+				$moduleClassName .= FSI_MODULES_CLASS_SUFFIX;
+				$modules[] = call_user_func(array($moduleClassName, 'getInstance'));
+			}
+		}
+		return $modules;
+	}
+	
+	protected function includeClassDependenciesNow() {
+		if (!$this->dependencyClassFilesLoaded) {
+			foreach($this->dependencyClassFiles as $classFile) {
+				require_once(FSI_MODULES_PATH.$classFile);
+			}
+			foreach($this->classFiles as $classFile) {
+				require_once(FSI_MODULES_PATH.$classFile);
+			}
+			$this->dependencyClassFilesLoaded = true;
+		}
+	}
+	
+	/**
+	 * Creates a file object.
+	 *
+	 * @param string $path
+	 * @param array $params
+	 * @return AbstractFile An object if the file can be created with this factory, or NULL otherwise.
+	 */
+	public function createFile($path, $params=null) {
+		$urlParts = AdvancedPathLib::parse_url($path);
+		return $this->createFileFromUrlParts($urlParts, $params);
+	}
+}
+
+interface VPModule  {
+	
+	public function getVirtualPathFromUrlParts($urlParts, $params=null);
+	
+	public function getRealPathFromUrlParts($urlParts, $params=null);
+}
+?>

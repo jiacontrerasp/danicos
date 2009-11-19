@@ -1,0 +1,1087 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+//DEBUG
+error_reporting(E_ALL ^ E_NOTICE);
+if (function_exists('xdebug_enable')) {xdebug_enable();}
+//DEBUG
+
+require_once('./system/services/vfs/file/main'.EYE_CODE_EXTENSION);
+
+define('EYEPOCVFS2_INITIAL_DIR', 'home://localhost/~'.$currentUser);
+//define('EYEPOCVFS2_INITIAL_DIR', EYEOSFILE_URL_SCHEME_EYEOS.'://localhost');
+
+function eyeFileBrowser_on_init($params=null) {
+	try {
+		if (! $params['path'][0]) {
+			$file = FSIService::getInstance()->createFile(EYEPOCVFS2_INITIAL_DIR);
+		}
+		else {
+			$file = FSIService::getInstance()->createFile($params['path'][0]);
+		}
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+	loadFiles($file);
+}
+
+function eyeFileBrowser_on_path_TXTBOX() {
+	try {
+		$path = autoFillPassword($GLOBALS['path_TXTBOX']->text);
+		$file = FSIService::getInstance()->createFile($path);
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+	if (is_null($file)) {
+		eyeX('messageBox', array('content' => 'Invalid URL'));
+		return;
+	}
+	loadFiles($file);
+}
+
+function loadFiles($folder) {	
+	global $myPid, $checknum;
+	
+	if (!is_object($folder)) {
+		eyeX('messageBox', array('content' => 'loadFiles(): Wrong parameter'));
+		firebugLog($folder);
+		return;
+	}
+	if (is_null($folder)) {
+		eyeX('messageBox', array('content' => 'Unable to browse given location'));
+		return;
+	}
+	
+	if($folder->isLink()) {
+		$folder = $folder->getLinkTarget();
+	}
+	if (!$folder->exists()) {
+		$folder = $folder->getParentFile();
+	}
+	if($folder->isFile()) {
+		eyeX('messageBox', array('content' => 'Not a directory'));
+		return;
+	}
+	
+	$recursiveSizes = (is_object($GLOBALS['recursiveSizes_CHKBOX']) && $GLOBALS['recursiveSizes_CHKBOX']->checked)? true : false;
+	
+	//set filter and flags
+	$filter = (is_object($GLOBALS['filter_TXTBOX']) && $GLOBALS['filter_TXTBOX']->text)? $GLOBALS['filter_TXTBOX']->text : '*';
+	$flags = AdvancedPathLib::GLOB_NORMAL;
+	$flags |= (is_object($GLOBALS['listFilesFlags_dirFirst_CHKBOX']) && $GLOBALS['listFilesFlags_dirFirst_CHKBOX']->checked)? AdvancedPathLib::GLOB_DIR_FIRST : 0;
+	$flags |= (is_object($GLOBALS['listFilesFlags_dirIgnorePattern_CHKBOX']) && $GLOBALS['listFilesFlags_dirIgnorePattern_CHKBOX']->checked)? AdvancedPathLib::GLOB_DIR_IGNORE_PATTERN : 0;
+	$flags |= (is_object($GLOBALS['listFilesFlags_onlyDir_CHKBOX']) && $GLOBALS['listFilesFlags_onlyDir_CHKBOX']->checked)? AdvancedPathLib::GLOB_ONLY_DIR : 0;
+	
+	try {
+		$files = $folder->listFiles($filter, $flags);
+	}
+	catch (Exception $e) {
+		eyeX('messageBox', array('content' => 'Unable to list files: '.$e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+	
+	if (is_object($GLOBALS['files_TAB'])) {
+		@$GLOBALS['files_TAB']->remove();
+	}
+	
+	/* TABLE FOR FILES LIST */
+	$filesTable = new Sortabletable(array(
+		'name' => 'files_TAB',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 2,
+		'y' => 108,
+		'width' => $GLOBALS['eyeFileBrowser_WND']->width - 8,
+		'height' => $GLOBALS['eyeFileBrowser_WND']->height - 138,
+		'sortypes' => array('Html','String','Number','String','String','Hidden'),
+		'master' => 5,
+		'theader' => array(' ','Filename','Filesize','Extension','Permissions','id'),
+		'signal' => 'filesClick',
+		'dblsignal' => 'filesDblClick'
+	));
+	$filesTable->show();
+	$filesTable->setCss(array('white-space' => 'nowrap'));
+	
+	foreach($files as $file) {
+		if ($file->isDirectory()) {
+			$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/16x16/folder.png';
+		}
+		elseif ($file->isLink()) {
+			if (method_exists($file, 'getInfo')) {
+				$linkInfo = $file->getInfo();
+				if ($linkInfo && ($iconName = $linkInfo['eyeLink'][0]['icon'][0])) {
+					$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/48x48/'.$iconName.'.png';
+				}
+				else {
+					$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/16x16/link.png';
+				}
+			}
+			else {
+				$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/16x16/link.png';
+			}
+		}
+		else {
+			$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/16x16/file.png';
+		}
+		
+		$iconName = 'fileIcon_'.md5(uniqid());
+		$iconId = $myPid.'_'.$iconName;
+		
+		//fetching & formatting file's informations
+		try {
+			//data sent and displayed in the browser must be UTF-8 so we convert filenames if needed
+			if (mb_detect_encoding($file->getName(), 'ISO-8859-1, UTF-8') != 'UTF-8') {
+				$filename = utf8_encode($file->getName());
+			}
+			else {
+				$filename = $file->getName();
+			}
+			if ($file->isDirectory()) {
+				$size = $recursiveSizes? $file->getSize(true) : ' ';
+				$extension = ' ';
+			}
+			else {
+				$size = $file->getSize($recursiveSizes);
+				$extension = $file->getExtension()? strtoupper($file->getExtension()) : ' ';
+			}
+			$permissions = $file->getPermissions(false)? $file->getPermissions(false) : ' ';
+		}
+		catch(Exception $e) {
+			eyeX('messageBox', array('content' => 'Error processing file'));
+			firebugLog($e->getMessage());
+		}
+		
+		$filesTable->addRow(array(
+			'<img src="'.$urlIcon.'" id="'.$iconId.'" style="width: 16px; height:16px;" />',
+			$filename,
+			$size,
+			$extension,
+			$permissions,
+			urlencode(serialize($file))
+		));
+		
+		$myDrag = new widgetDrag(array(
+			'name' => $iconId.'_DRG',
+			'father' => $iconName,
+			'content' => array(
+				$file->getAbsolutePath(),
+				$myPid,
+				$checknum
+			),
+			'dragAlpha' => 80,
+			'cursorPos' => 1,
+			'dragCss' => array(
+				array('border', 'color', 'position'),
+				array('1px grey dotted', 'grey', 'absolute')
+			)
+		));
+		$myDrag->show();
+	}
+	
+	if (!is_object($GLOBALS['files_drop_MNU'])) {
+		$myDropMenu = new SimpleMenu(array(
+			'name'=>'files_drop_MNU',
+			'father'=>'files_TAB_Container'
+		));
+		$myDropMenu->show();
+		$myDropMenu->addEntry(
+			'<img id="files_drop_MNU_copy_ENT" style="height: 16px; width: 16px;" src="index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeFiles/gfx/copy.png" /> &nbsp; Copy here',
+			'files_drop_MNU_copy_ENT',
+			'files_drop_MNU_copy_ENT',
+			'',
+			'files_drop_MNU_copy_ENT'
+		);
+		$myDropMenu->addEntry(
+			'<img id="files_drop_MNU_move_ENT" style="height: 16px; width: 16px;" src="index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeFiles/gfx/copy.png" /> &nbsp; Move here',
+			'files_drop_MNU_move_ENT',
+			'files_drop_MNU_move_ENT',
+			'',
+			'files_drop_MNU_move_ENT'
+		);
+	}
+
+	if (is_object($GLOBALS['files_DRP'])) {
+		$myDrop = $GLOBALS['files_DRP'];
+	}
+	else {
+		//drop widget on the entire table
+		$myDrop = new widgetDrop(array(
+			'name' => 'files_DRP',
+			'father' => 'files_TAB_Container'
+		));	
+		$myDrop->show();
+	}
+	$myDrop->addBehaviour(array(
+		'type' => 'widgetDrop_simpleMenu',
+		'params' => array(
+			'pid' => $myPid,
+			'widgetId' => $myPid.'_files_drop_MNU',
+			'signal' => 'moveDrag',
+			'content' => $folder->getAbsolutePath()
+		)
+	));
+	
+	setCurrentFolder($folder);
+	$path = registerPassword(FSIService::getInstance()->getVirtualPath($folder->getAbsolutePath()));
+	if (mb_detect_encoding($path, 'ISO-8859-1, UTF-8') != 'UTF-8') {
+		$path = utf8_encode($path);
+	}
+	$GLOBALS['path_TXTBOX']->setText($path);
+}
+
+function eyeFileBrowser_on_filesDblClick($params=null) {
+	$file = getSelectedFile();
+	if (!$file) {
+		eyeX('messageBox', array('content' => 'Invalid file'));
+		return;
+	}
+	loadFiles($file);
+}
+
+
+function eyeFileBrowser_on_files_drop_MNU_copy_ENT($params=null) {	
+	global $checknum;
+	
+	//retrieve data stored on last drop action
+	$dragParams = unserialize(urldecode($GLOBALS['dragParams_HID']->text));
+	
+	$pathFrom = $dragParams['arg1'][0];
+	$pathTo = $dragParams['arg4'][0];
+	$pidSrc = $dragParams['arg2'][0];
+	$checknumSrc = $dragParams['arg3'][0];
+
+	try {
+		$fileSrc = FSIService::getInstance()->createFile($pathFrom);
+		$fileDest = FSIService::getInstance()->createFile($pathTo);
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+	try {
+		if ($fileSrc->copyTo($fileDest)) {
+			eyeX('messageBox', array('content' => 'File copied successfully'));
+			sendReloadFilesSignal($checknum);
+		}
+		else {
+			eyeX('messageBox', array('content' => 'Error during copy'));
+		}
+	}
+	catch (Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+}
+
+function eyeFileBrowser_on_files_drop_MNU_move_ENT($params=null) {
+	global $checknum;
+	//retrieve data stored on last drop action
+	$dragParams = unserialize(urldecode($GLOBALS['dragParams_HID']->text));
+	
+	$pathFrom = $dragParams['arg1'][0];
+	$pathTo = $dragParams['arg4'][0];
+	$pidSrc = $dragParams['arg2'][0];
+	$checknumSrc = $dragParams['arg3'][0];
+
+	try {
+		$fileSrc = FSIService::getInstance()->createFile($pathFrom);
+		$fileDest = FSIService::getInstance()->createFile($pathTo);
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+	try {
+		if ($fileSrc->moveTo($fileDest)) {
+			eyeX('messageBox', array('content' => 'File moved successfully'));
+			sendReloadFilesSignal($checknumSrc);
+			sendReloadFilesSignal($checknum);
+		}
+		else {
+			eyeX('messageBox', array('content' => 'Error during move'));
+		}
+	}
+	catch (Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------------------------
+function eyeFileBrowser_on_moveDrag($params=null){	
+	//store data temporarily until user clicks on an element of the menu
+	$GLOBALS['dragParams_HID']->setText(urlencode(serialize($params)));
+}
+//-------------------------------------------------------------------------------------------------------------------
+
+function eyeFileBrowser_on_home_IMG($params=null) {
+	try {
+		$file = FSIService::getInstance()->createFile(EYEPOCVFS2_INITIAL_DIR);
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+	loadFiles($file);
+}
+
+function eyeFileBrowser_on_cdUp_ITM($params=null) {
+	$folder = getCurrentFolder();
+	if (!is_object($folder)) {
+		eyeX('messageBox', array('content' => 'Unable to go up'));
+		return;
+	}
+	try {
+		loadFiles($folder->getParentFile());
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+}
+
+function eyeFileBrowser_on_reload_ITM($params=null) {
+	$folder = getCurrentFolder();	
+	if (!is_object($folder)) {
+		eyeX('messageBox', array('content' => 'Unable to reload files'));
+		return;
+	}
+	loadFiles($folder);
+}
+
+function eyeFileBrowser_on_search_ITM($params=null) {
+	$folder = getCurrentFolder();	
+	if (!is_object($folder)) {
+		eyeX('messageBox', array('content' => 'Unable to search files here'));
+		return;
+	}
+	proc('launch', array('eyeFileSearch', array('*', FSIService::getInstance()->getVirtualPath($folder))));
+}
+
+function eyeFileBrowser_on_properties_ITM($params=null) {
+	if (! $GLOBALS['files_TAB']->selected) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	$selectedFile = getSelectedFile();
+	if (! is_object($selectedFile)) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	createFilePropertiesDialog($selectedFile);
+}
+
+function eyeFileBrowser_on_rename_ITM($params=null) {
+	if (! $GLOBALS['files_TAB']->selected) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	$selectedFile = getSelectedFile();
+	if (! is_object($selectedFile)) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	if (is_object($GLOBALS['rename_DLG'])) {
+		$GLOBALS['rename_DLG']->close();
+	}
+	
+	$mainWindow = new Window(array(
+		'name' => 'rename_DLG',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'cent' => 1,
+		'type' => NOLIST_CLOSE_WINDOW,
+		'width' => 300,
+		'height' => 100,
+		'title' => 'Rename',
+		'removepid' => 0
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'rename_logo_IMG',
+		'father' => 'rename_DLG_Content',
+		'x' => 10,
+		'y' => 10,
+		'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeFiles/gfx/rename_big.png'
+	));
+	$logo->show();
+	
+	$newNameTextbox = new Textbox(array(
+		'name' => 'rename_newName_TXTBOX',
+		'father' => 'rename_DLG_Content',
+		'x' => 80,
+		'y' => 20,
+		'width' => 200,
+		'text' => $selectedFile->getName()
+	));
+	$newNameTextbox->show();
+	$newNameTextbox->addEnterEventMsg('rename_ok_BTN');
+	$newNameTextbox->focus();
+	
+	$okButton = new Button(array(
+		'name' => 'rename_ok_BTN',
+		'father' => 'rename_DLG_Content',
+		'caption' => 'Ok',
+		'x' => 120,
+		'y' => 44,
+		'width' => 40,
+		'enabled' => 1
+	));
+	$okButton->addFriend($newNameTextbox);
+	$okButton->show();
+	
+	$cancelButton = new Button(array(
+		'name' => 'rename_cancel_BTN',
+		'father' => 'rename_DLG_Content',
+		'caption' => 'Cancel',
+		'x' => 210,
+		'y' => 44,
+		'width' => 50,
+		'enabled' => 1
+	));
+	$cancelButton->show();
+	
+	$selectedFileHidden = new Hidden(array(
+		'name' =>'rename_selectedFile_HID',
+		'father' => 'rename_DLG_Content',
+		'text' => urlencode($selectedFile->getAbsolutePath())
+	));
+	reqLib('eyeWidgets','serialize',array($selectedFileHidden));
+}
+function eyeFileBrowser_on_rename_ok_BTN($params=null) {
+	global $checknum;
+	
+	if (! is_object($GLOBALS['rename_selectedFile_HID'])) {
+		eyeX('messageBox', array('content' => 'File error'));
+		return;
+	}
+	$file = FSIService::getInstance()->createFile(urldecode($GLOBALS['rename_selectedFile_HID']->text));
+	if (! is_object($file)) {
+		eyeX('messageBox', array('content' => 'File error'));
+		return;
+	}
+	try {
+		if ($file->renameTo($GLOBALS['rename_newName_TXTBOX']->text)) {
+			eyeX('messageBox', array('content' => 'File renamed successfully'));
+			sendReloadFilesSignal($checknum);
+		}
+		else {
+			eyeX('messageBox', array('content' => 'Unable to rename element'));
+		}
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+	if (is_object($GLOBALS['rename_DLG'])) {
+		$GLOBALS['rename_DLG']->close();
+	}
+}
+function eyeFileBrowser_on_rename_cancel_BTN($params=null) {
+	if (is_object($GLOBALS['rename_DLG'])) {
+		$GLOBALS['rename_DLG']->close();
+	}
+}
+
+function eyeFileBrowser_on_delete_ITM($params=null) {
+	global $checknum;
+	
+	if (! $GLOBALS['files_TAB']->selected) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	$selectedFile = getSelectedFile();
+	if (! is_object($selectedFile)) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	try {
+		if ($selectedFile->delete(true)) {
+			eyeX('messageBox', array('content' => 'File deleted successfully'));
+			sendReloadFilesSignal($checknum);
+		}
+		else {
+			eyeX('messageBox', array('content' => 'Error during deletion'));
+		}
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => 'Error during deletion'));
+		firebugLog($e->getMessage());
+		return;
+	}
+}
+
+function eyeFileBrowser_on_create_ITM($params=null) {
+	if (is_object($GLOBALS['create_DLG'])) {
+		$GLOBALS['create_DLG']->close();
+	}
+	
+	$mainWindow = new Window(array(
+		'name' => 'create_DLG',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'cent' => 1,
+		'type' => NOLIST_CLOSE_WINDOW,
+		'width' => 300,
+		'height' => 100,
+		'title' => 'Create file',
+		'removepid' => 0
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'create_logo_IMG',
+		'father' => 'create_DLG_Content',
+		'x' => 10,
+		'y' => 10,
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/48x48/file.png'
+	));
+	$logo->show();
+	
+	$nameTextbox = new Textbox(array(
+		'name' => 'create_name_TXTBOX',
+		'father' => 'create_DLG_Content',
+		'x' => 80,
+		'y' => 20,
+		'width' => 200,
+		'text' => ''
+	));
+	$nameTextbox->show();
+	$nameTextbox->addEnterEventMsg('create_ok_BTN');
+	$nameTextbox->focus();
+	
+	$okButton = new Button(array(
+		'name' => 'create_ok_BTN',
+		'father' => 'create_DLG_Content',
+		'caption' => 'Ok',
+		'x' => 120,
+		'y' => 44,
+		'width' => 40,
+		'enabled' => 1
+	));
+	$okButton->addFriend($nameTextbox);
+	$okButton->show();
+	
+	$cancelButton = new Button(array(
+		'name' => 'create_cancel_BTN',
+		'father' => 'create_DLG_Content',
+		'caption' => 'Cancel',
+		'x' => 210,
+		'y' => 44,
+		'width' => 50,
+		'enabled' => 1
+	));
+	$cancelButton->show();
+}
+function eyeFileBrowser_on_create_ok_BTN($params=null) {
+	global $checknum;
+	
+	$folder = getCurrentFolder();
+	if (!is_object($folder) || !$GLOBALS['create_name_TXTBOX']->text) {
+		eyeX('messageBox', array('content' => 'Unable to create file here'));
+		return;
+	}
+	
+	try {
+		$newFile = $folder->getChildFile($GLOBALS['create_name_TXTBOX']->text);
+		if (is_object($newFile) && $newFile->createNewFile()) {
+			eyeX('messageBox', array('content' => 'File created successfully'));
+			sendReloadFilesSignal($checknum);
+		}
+		else {
+			eyeX('messageBox', array('content' => 'Unable to create file here'));
+		}
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => 'Error during file creation'));
+		firebugLog($e->getMessage());
+		return;
+	}
+	if (is_object($GLOBALS['create_DLG'])) {
+		$GLOBALS['create_DLG']->close();
+	}
+}
+function eyeFileBrowser_on_create_cancel_BTN($params=null) {
+	if (is_object($GLOBALS['create_DLG'])) {
+		$GLOBALS['create_DLG']->close();
+	}
+}
+
+function eyeFileBrowser_on_makeDir_ITM($params=null) {
+	if (is_object($GLOBALS['create_DLG'])) {
+		$GLOBALS['create_DLG']->close();
+	}
+	
+	$mainWindow = new Window(array(
+		'name' => 'create_DLG',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'cent' => 1,
+		'type' => NOLIST_CLOSE_WINDOW,
+		'width' => 300,
+		'height' => 100,
+		'title' => 'Create directory',
+		'removepid' => 0
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'create_logo_IMG',
+		'father' => 'create_DLG_Content',
+		'x' => 10,
+		'y' => 10,
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/48x48/folder.png'
+	));
+	$logo->show();
+	
+	$nameTextbox = new Textbox(array(
+		'name' => 'makeDir_name_TXTBOX',
+		'father' => 'create_DLG_Content',
+		'x' => 80,
+		'y' => 20,
+		'width' => 200,
+		'text' => ''
+	));
+	$nameTextbox->show();
+	$nameTextbox->addEnterEventMsg('makeDir_ok_BTN');
+	$nameTextbox->focus();
+	
+	$okButton = new Button(array(
+		'name' => 'makeDir_ok_BTN',
+		'father' => 'create_DLG_Content',
+		'caption' => 'Ok',
+		'x' => 120,
+		'y' => 44,
+		'width' => 40,
+		'enabled' => 1
+	));
+	$okButton->addFriend($nameTextbox);
+	$okButton->show();
+	
+	$cancelButton = new Button(array(
+		'name' => 'create_cancel_BTN',
+		'father' => 'create_DLG_Content',
+		'caption' => 'Cancel',
+		'x' => 210,
+		'y' => 44,
+		'width' => 50,
+		'enabled' => 1
+	));
+	$cancelButton->show();
+}
+function eyeFileBrowser_on_makeDir_ok_BTN($params=null) {
+	global $checknum;
+	
+	$folder = getCurrentFolder();
+	if (!is_object($folder) || !$GLOBALS['makeDir_name_TXTBOX']->text) {
+		eyeX('messageBox', array('content' => 'Incorrect arguments'));
+		return;
+	}
+	
+	try {
+		$newFile = $folder->getChildFile($GLOBALS['makeDir_name_TXTBOX']->text);
+		if (is_object($newFile) && $newFile->mkdir()) {
+			eyeX('messageBox', array('content' => 'Directory created successfully'));
+			sendReloadFilesSignal($checknum);
+		}
+		else {
+			eyeX('messageBox', array('content' => 'Creation failed'));
+		}
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => 'Error during creation'));
+		firebugLog($e->getMessage());
+		return;
+	}
+	if (is_object($GLOBALS['create_DLG'])) {
+		$GLOBALS['create_DLG']->close();
+	}
+}
+
+function eyeFileBrowser_on_createLink_ITM($params=null) {
+	if (is_object($GLOBALS['create_DLG'])) {
+		$GLOBALS['create_DLG']->close();
+	}
+	
+	$mainWindow = new Window(array(
+		'name' => 'create_DLG',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'cent' => 1,
+		'type' => NOLIST_CLOSE_WINDOW,
+		'width' => 300,
+		'height' => 130,
+		'title' => 'Create link',
+		'removepid' => 0
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'create_logo_IMG',
+		'father' => 'create_DLG_Content',
+		'x' => 10,
+		'y' => 10,
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/48x48/filetypes/link.png'
+	));
+	$logo->show();
+	
+	//drop widget on the file icon
+	$myDrop = new widgetDrop(array(
+		'name' => 'create_logo_DRP',
+		'father' => 'create_DLG_Content'
+	));	
+	$myDrop->show();
+	$myDrop->addBehaviour(array(
+		'type' => 'moveAndClick',
+		'params' => array(
+			'signal' => 'createLink_moveDrag',
+		)
+	));
+	
+	$nameTextbox = new Textbox(array(
+		'name' => 'createLink_name_TXTBOX',
+		'father' => 'create_DLG_Content',
+		'x' => 80,
+		'y' => 20,
+		'width' => 200,
+		'text' => 'link name'
+	));
+	$nameTextbox->show();
+	$nameTextbox->addEnterEventMsg('createLink_ok_BTN');
+	$nameTextbox->focus();
+	
+	$targetPathTextbox = new Textbox(array(
+		'name' => 'createLink_targetPath_TXTBOX',
+		'father' => 'create_DLG_Content',
+		'x' => 80,
+		'y' => 46,
+		'width' => 200,
+		'text' => 'target path'
+	));
+	$targetPathTextbox->show();
+	$targetPathTextbox->addEnterEventMsg('create_ok_BTN');
+	
+	$okButton = new Button(array(
+		'name' => 'createLink_ok_BTN',
+		'father' => 'create_DLG_Content',
+		'caption' => 'Ok',
+		'x' => 120,
+		'y' => 74,
+		'width' => 40,
+		'enabled' => 1
+	));
+	$okButton->addFriend($nameTextbox);
+	$okButton->addFriend($targetPathTextbox);
+	$okButton->show();
+	
+	$cancelButton = new Button(array(
+		'name' => 'create_cancel_BTN',
+		'father' => 'create_DLG_Content',
+		'caption' => 'Cancel',
+		'x' => 210,
+		'y' => 74,
+		'width' => 50,
+		'enabled' => 1
+	));
+	$cancelButton->show();
+}
+function eyeFileBrowser_on_createLink_moveDrag($params=null) {
+	$pathFrom = $params['arg0'][0];
+	$pidSrc = $params['arg1'][0];
+	$checknumSrc = $params['arg2'][0];
+	
+	$file = FSIService::getInstance()->createFile($pathFrom);
+	$GLOBALS['createLink_targetPath_TXTBOX']->setText(FSIService::getInstance()->getVirtualPath($file));
+}
+function eyeFileBrowser_on_createLink_ok_BTN($params=null) {
+	global $checknum;
+	
+	$folder = getCurrentFolder();
+	if (!is_object($folder) || !$GLOBALS['createLink_name_TXTBOX']->text) {
+		eyeX('messageBox', array('content' => 'Unable to create link here'));
+		return;
+	}
+	$targetPath = $GLOBALS['createLink_targetPath_TXTBOX']->text;
+	if (!$targetPath) {
+		eyeX('messageBox', array('content' => 'Choose a target'));
+		return;
+	}
+	try {
+		$newLink = $folder->getChildFile($GLOBALS['createLink_name_TXTBOX']->text);
+		if (is_object($newLink) && $newLink->createNewLink(FSIService::getInstance()->createFile($targetPath))) {
+			eyeX('messageBox', array('content' => 'Link created successfully'));
+			sendReloadFilesSignal($checknum);
+		}
+		else {
+			eyeX('messageBox', array('content' => 'Unable to create link here'));
+		}
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => 'Error during link creation'));
+		firebugLog($e->getMessage());
+		return;
+	}
+	if (is_object($GLOBALS['create_DLG'])) {
+		$GLOBALS['create_DLG']->close();
+	}
+}
+
+function eyeFileBrowser_on_edit_ITM($params=null) {
+	if (! $GLOBALS['files_TAB']->selected) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	$selectedFile = getSelectedFile();
+	if ($selectedFile->isLink()) {
+		$selectedFile = $selectedFile->getLinkTarget();
+	}
+	proc('launch', array('eyeNotes2', $selectedFile->getAbsolutePath()));
+}
+
+function eyeFileBrowser_on_fork_ITM($params=null) {
+	if ($GLOBALS['files_TAB']->selected) {
+		$selectedFile = getSelectedFile();
+		if ($selectedFile->isLink()) {
+			$destFolder = $selectedFile->getLinkTarget();
+		}
+	}
+	if (isset($destFolder) && $destFolder->isDirectory()) {
+		$destFolderPath = $destFolder->getAbsolutePath();
+	}
+	else {
+		$destFolderPath = getCurrentFolder()->getAbsolutePath();
+	}
+	proc('launch', array('eyeFileBrowser', array($destFolderPath)));
+}
+
+
+
+
+//----------------------------------------------------------------------------------------------
+function setCurrentFolder($path) {
+	$GLOBALS['currentFolder_HID']->setText(urlencode(serialize($path)));
+}
+function getCurrentFolder() {
+	return unserialize(urldecode($GLOBALS['currentFolder_HID']->text));
+}
+
+function getSelectedFile() {
+	return unserialize(urldecode($GLOBALS['files_TAB']->selected));
+}
+
+function sendReloadFilesSignal($checknum) {
+	eyeX('rawjs',array('js' => 'sendMsg('.$checknum.',"reload_ITM","");'));
+}
+
+function registerPassword($path) {
+	$urlParts = AdvancedPathLib::parse_url($path);
+	if (!isset($urlParts['pass'])) {
+		return $path;
+	}
+	$password = $urlParts['pass'];
+	unset($urlParts['pass']);
+	$urlParts_tmp = $urlParts;
+	$urlParts_tmp['host'] = gethostbyname($urlParts_tmp['host']);
+	unset($urlParts_tmp['query']);
+	unset($urlParts_tmp['fragment']);
+	$connectionKey = AdvancedPathLib::buildURL($urlParts_tmp);
+	$passwordsCache = unserialize($GLOBALS['passwordsCache_HID']->text);
+	$passwordsCache[$connectionKey] = $password;
+	$GLOBALS['passwordsCache_HID']->setText(serialize($passwordsCache));
+	return AdvancedPathLib::buildURL($urlParts);
+}
+function autoFillPassword($path) {
+	$urlParts = AdvancedPathLib::parse_url($path);
+	$urlParts_tmp = $urlParts;
+	unset($urlParts_tmp['pass']);
+	$urlParts_tmp['host'] = gethostbyname($urlParts_tmp['host']);
+	unset($urlParts_tmp['query']);
+	unset($urlParts_tmp['fragment']);
+	$connectionKey = AdvancedPathLib::buildURL($urlParts_tmp);
+	$passwordsCache = unserialize($GLOBALS['passwordsCache_HID']->text);
+	if (isset($passwordsCache[$connectionKey])) {
+		$urlParts['pass'] = $passwordsCache[$connectionKey];
+		return AdvancedPathLib::buildURL($urlParts);
+	}
+	return $path;
+}
+
+
+function createFilePropertiesDialog($file) {
+	if (is_object($GLOBALS['properties_DLG'])) {
+		$GLOBALS['properties_DLG']->close();
+	}
+	
+	$mainWindow = new Window(array(
+		'name' => 'properties_DLG',
+		'father' => 'eyeApps',
+		'cent' => 1,
+		'type' => NOLIST_CLOSE_WINDOW,
+		'width' => 340,
+		'height' => 440,
+		'title' => 'File properties',
+		'removepid' => 0
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'properties_logo_IMG',
+		'father' => 'properties_DLG_Content',
+		'x' => 10,
+		'y' => 10,
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/48x48/i.png'
+	));
+	$logo->show();
+	
+	//FILENAME
+	$filename = new Label(array(
+		'name' => 'properties_filename_LBL',
+		'father' => 'properties_DLG_Content',
+		'x' => 70,
+		'y' => 16,
+		'text' => $file->getName()
+	));
+	$filename->show(0);
+	$filename->setCss(array(
+		'font-size' => '16px',
+		'font-weight' => 'bold',
+		'color' => '#004488',
+		'word-wrap' => 'break-word'
+	));
+	
+	//FILEPATH
+	$filepath = new Label(array(
+		'name' => 'properties_filepath_LBL',
+		'father' => 'properties_DLG_Content',
+		'x' => 70,
+		'y' => 40,
+		'text' => FSIService::getInstance()->getVirtualPath($file)
+	));
+	$filepath->show(0);
+	$filepath->setCss(array(
+		'font-size' => '11px',
+		'color' => '#004488',
+		'word-wrap' => 'break-word'
+	));
+	
+	//LINE
+	$line = new Line(array(
+		'name' => 'properties_line_LIN',
+		'father' => 'properties_DLG_Content',
+		'x' => 10,
+		'y' => 70,
+		'width' => $mainWindow->width -20,
+		'height' => 2
+	));
+	$line->show(0);
+	
+	/* TABLE FOR PROPERTIES LIST */
+	$propTable = new Sortabletable(array(
+		'name' => 'prop_TAB',
+		'father' => 'properties_DLG_Content',
+		'x' => 2,
+		'y' => 80,
+		'width' => $mainWindow->width - 8,
+		'height' => $mainWindow->height - 110,
+		'sortypes' => array('String','String'),
+		'theader' => array('Property','Value')
+	));
+	$propTable->show();
+	//$propTable->setCss(array('white-space' => 'nowrap'));
+	
+	try {
+		$propTable->addRow(array('PHP class', get_class($file)));
+		$propTable->addRow(array('Can read', $file->canRead()? 'true' : 'false'));
+		$propTable->addRow(array('Can write', $file->canWrite()? 'true' : 'false'));
+		$propTable->addRow(array('Exists', $file->exists()? 'true' : 'false'));
+		$propTable->addRow(array('Absolute path', $file->getAbsolutePath()));
+		$propTable->addRow(array('Extenstion', $file->getExtension()));
+		$propTable->addRow(array('Name', $file->getName()));
+		$propTable->addRow(array('Parent path', $file->getParentPath()));
+		$propTable->addRow(array('Path', $file->getPath()));
+		$propTable->addRow(array('Path from root', $file->getPathFromRoot()));
+		$propTable->addRow(array('Permissions', $file->getPermissions(false)));
+		$propTable->addRow(array('Size (B)', $file->getSize()));
+		
+		$propTable->addRow(array('URL Components:',' '));
+			$urlParts = $file->getUrlComponents();
+			$propTable->addRow(array('-- scheme', @$urlParts['scheme']));
+			$propTable->addRow(array('-- user', @$urlParts['user']));
+			$propTable->addRow(array('-- pass', @$urlParts['pass']));
+			$propTable->addRow(array('-- host', @$urlParts['host']));
+			$propTable->addRow(array('-- port', @$urlParts['port']));
+			$propTable->addRow(array('-- path', @$urlParts['path']));
+			$propTable->addRow(array('-- query', @$urlParts['query']));
+			$propTable->addRow(array('-- fragment', @$urlParts['fragment']));
+		
+		$propTable->addRow(array('Is directory', $file->isDirectory()? 'true' : 'false' ));
+		$propTable->addRow(array('Is file', $file->isFile()? 'true' : 'false' ));
+		$propTable->addRow(array('Is link', $file->isLink()? 'true' : 'false' ));
+		$propTable->addRow(array('Link target', $file->isLink()? $file->getLinkTarget()->getAbsolutePath() : ' ' ));
+		$propTable->addRow(array('PHP "LocalHackPath"', AdvancedPathLib::getPhpLocalHackPath($file->getAbsolutePath())));
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+	}
+}
+//----------------------------------------------------------------------------------------------
+function firebugLog($message) {
+	$message = str_replace('"', '\\"', $message);
+	eyeX('rawjs', array('js' => 'console.log("'.print_r($message,true).'")'));
+}
+
+function eyeFileBrowser_on_windowResize($params) {
+	$newWidth = intval($params['arg'][0]);
+	$newHeight = intval($params['arg'][1]);
+	
+	//update window properties
+	$GLOBALS['eyeFileBrowser_WND']->setWidth($newWidth);
+	$GLOBALS['eyeFileBrowser_WND']->setHeight($newHeight);
+	
+	$GLOBALS['path_TXTBOX']->setWidth($newWidth -84);
+	$GLOBALS['go_BTN']->setX($newWidth - 46);
+	
+	$GLOBALS['files_TAB']->setWidth($newWidth - 8);
+	$GLOBALS['files_TAB']->setHeight($newHeight - 138);
+}
+
+function eyeFileBrowser_on_Message($params=null){
+	eyeWidgets('updateContent',$params);
+}
+
+function eyeFileBrowser_on_Close(){
+	proc('end');
+}
+
+
+?>

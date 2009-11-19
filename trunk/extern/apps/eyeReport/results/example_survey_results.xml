@@ -1,0 +1,73 @@
+<?xml-stylesheet type="text/xsl" href="index.php?extern=apps/eyeReport/results.xsl"?>
+<eyeReportResults>
+	<result>
+		<question>
+			<id>example_survey_q1</id>
+			<answer>This is an initial text...</answer>
+		</question>
+		<question>
+			<id>example_survey_q2</id>
+			<answer></answer>
+		</question>
+		<question>
+			<id>example_survey_q3</id>
+			<answer>3</answer>
+		</question>
+	</result>
+	<result>
+		<question>
+			<id>example_survey_q1</id>
+			<answer>This is an initial text...</answer>
+		</question>
+		<question>
+			<id>example_survey_q2</id>
+			<answer></answer>
+		</question>
+		<question>
+			<id>example_survey_q3</id>
+			<answer>3</answer>
+		</question>
+	</result>
+	<result>
+		<question>
+			<id>example_survey_q1</id>
+			<answer>qsegtqsrhgerh</answer>
+		</question>
+		<question>
+			<id>example_survey_q2</id>
+			<answer>Common|... a duck!</answer>
+		</question>
+		<question>
+			<id>example_survey_q3</id>
+			<answer>3</answer>
+		</question>
+	</result>
+	<result>
+		<question>
+			<id>example_survey_q1</id>
+			<answer>xfyfdtykiryd</answer>
+		</question>
+		<question>
+			<id>example_survey_q2</id>
+			<answer>Friendly|Common|Other...</answer>
+		</question>
+		<question>
+			<id>example_survey_q3</id>
+			<answer>3</answer>
+		</question>
+	</result>
+	<result>
+		<question>
+			<id>example_survey_q1</id>
+			<answer>wd</answer>
+		</question>
+		<question>
+			<id>example_survey_q2</id>
+			<answer>Reliable</answer>
+		</question>
+		<question>
+			<id>example_survey_q3</id>
+			<answer>5</answer>
+		</question>
+	</result>
+</eyeReportResults>

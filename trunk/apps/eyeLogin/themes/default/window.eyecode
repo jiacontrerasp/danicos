@@ -1,0 +1,400 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+//set the wallpaper
+global $myPid;
+global $checknum;
+eyeX('loadScript', array('url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeLogin/themes/default/js/eyelogin.js'));
+
+$eyeLoginWND = new Imagebox(array(
+	'name' => 'eyeLoginWND',
+	'father' => 'eyeApps',
+	'x' => $_SESSION['SCREEN']['width'] / 2,
+	'y' => $_SESSION['SCREEN']['height'] / 2,
+	'width' => 301,
+	'height' => 220,
+	'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeLogin/themes/'.LOGIN_THEME.'/gfx/bg_login.png',
+	'alt' => 'eyeLogin window',
+	'cssClass' => 'eyeLoginWindow'
+));
+$eyeLoginWND->show();
+
+eyex('updateCss',array('name' => $myPid . '_eyeLoginWND_Container','property' => 'left','value' => '50%'));
+eyex('updateCss',array('name' => $myPid . '_eyeLoginWND_Container','property' => 'top','value' => '50%'));
+
+$lblUsername = new Label(array(
+	'name' => 'lblUsername',
+	'father' => 'eyeLoginWND_Container',
+	'x' => 43,
+	'y' => 16,
+	'text' => 'Username'
+));
+$lblUsername->show();
+$tboxUsername = new Textbox(array(
+	'name' => 'tboxUsername',
+	'father' => 'eyeLoginWND_Container',
+	'x' => 42,
+	'y' => 37,
+	'width' => 214
+));
+$tboxUsername->show();
+$tboxUsername->focus();
+$tboxUsername->addEnterEvent('tryLogin('.$myPid.', '.$checknum.');');
+
+$lblPassword = new Label(array(
+	'name' => 'lblPassword',
+	'father' => 'eyeLoginWND_Container',
+	'x' => 43,
+	'y' => 70,
+	'text' => 'Password'
+));
+$lblPassword->show();
+$tboxPassword = new Textbox(array(
+	'name' => 'tboxPassword',
+	'father' => 'eyeLoginWND_Container',
+	'x' => 42,
+	'y' => 90,
+	'width' => 214,
+	'password' => 1
+));
+$tboxPassword->show();
+$tboxPassword->addEnterEvent('tryLogin('.$myPid.', '.$checknum.');');
+
+$lblSessionLanguage = new Label(array(
+	'name' => 'lblSessionLanguage',
+	'father' => 'eyeLoginWND_Container',
+	'x' => 43,
+	'y' => 124,
+	'text' => 'Language for the session'
+));
+$lblSessionLanguage->show();
+$selectSessionLanguage = new Select(array(
+	'name' => 'selectSessionLanguage',
+	'father' => 'eyeLoginWND_Container',
+	'x' => 42,
+	'y' => 143,
+	'width' => 212
+));
+$selectSessionLanguage->show();
+$selectSessionLanguage->addOption('( Default / User\'s profile )', 'auto');
+
+$imgEnter = new Imagebox(array(
+	'name' => 'imgEnter',
+	'father' => 'eyeLoginWND_Container',
+	'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeLogin/themes/default/gfx/enter.png',
+	'realname' => EYE_ROOT.'/'.EXTERN_DIR.'/apps/eyeLogin/themes/default/gfx/enter.png',
+	'alt' => 'eyeLogin',
+	'x' => 10,
+	'y' => 10,
+	'horiz'=> 1,
+	'vert'=> 1,
+	'cssClass'=>'cPointer'
+));
+$imgEnter->show();
+$imgEnter->addEvent('onclick', 'tryLogin('.$myPid.', '.$checknum.');');
+$lblEnter = new Label(array(
+	'name' => 'lblEnter',
+	'father' => 'eyeLoginWND_Container',
+	'x' => 40,
+	'horiz' => 1,
+	'y' => 13,
+	'vert' => 1,
+	'text' => 'Enter'
+));
+$lblEnter->show();
+$lblEnter->addEvent('onclick', 'tryLogin('.$myPid.', '.$checknum.');');
+
+if(ALLOW_USER_REGISTER == 1) {
+	$imgNewUser = new Imagebox(array(
+		'name' => 'imgNewUser',
+		'father' => 'eyeLoginWND_Container',
+		'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeLogin/themes/default/gfx/new.png',
+		'realname' => EYE_ROOT.'/'.EXTERN_DIR.'/apps/eyeLogin/themes/default/gfx/new.png',
+		'alt' => 'eyeLogin',
+		'x' => 10,
+		'y' => 10,
+		'vert'=> 1,
+		'cssClass'=>'cPointer'
+	));
+	$imgNewUser->show();
+	$imgNewUser->addEvent('onclick', 'toggleNewUser('.$myPid.', '.$checknum.');');
+	$lblNewUser = new Label(array(
+		'name' => 'lblNewUser',
+		'father' => 'eyeLoginWND_Container',
+		'x' => 40,
+		'horiz' => 0,
+		'y' => 13,
+		'vert' => 1,
+		'text' => 'New User'
+	));
+	$lblNewUser->show();
+	$lblNewUser->addEvent('onclick', 'toggleNewUser('.$myPid.', '.$checknum.');');
+	
+	$createUserWND = new Imagebox(array(
+		'name' => 'createUserWND',
+		'father' => 'eyeLoginWND_Container',
+		'x' => 0,
+		'y' => 200,
+		'width' => 301,
+		'height' => 282,
+		'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeLogin/themes/default/gfx/bg_newuser.png',
+		'realname' => EYE_ROOT.'/'.EXTERN_DIR.'/apps/eyeLogin/themes/default/gfx/bg_newuser.png',
+		'alt' => 'eyeLogin new user window',
+		'visible' => 0
+	));
+	$createUserWND->show();
+	
+	$hiddenLabel = new Label(array(
+		'name' => 'hiddenLabel',
+		'father' => 'createUserWND_Container',
+		'x' => 30,
+		'y' => 215,
+		'text' => ''
+	));
+	$hiddenLabel->show(0);
+	$hiddenLabel->setCSS(array('color' => '#ffaa00', 'font-size' => '12px', 'fond-weight' => 'bold', 'text-align' => 'justify', 'width' => '234px'));
+	
+	$lblNewUsername = new Label(array(
+		'name' => 'lblNewUsername',
+		'father' => 'createUserWND_Container',
+		'x' => 43,
+		'y' => 41,
+		'text' => 'New User'
+	));
+	$lblNewUsername->show();
+	$tboxNewUsername = new Textbox(array(
+		'name' => 'tboxNewUsername',
+		'father' => 'createUserWND_Container',
+		'x' => 42,
+		'y' => 54,
+		'width' => 214
+	));
+	$tboxNewUsername->show();
+	$tboxNewUsername->addEnterEvent('tryNewUser('.$myPid.', '.$checknum.');');
+	
+	$lblNewPassword1 = new Label(array(
+		'name' => 'lblNewPassword1',
+		'father' => 'createUserWND_Container',
+		'x' => 43,
+		'y' => 87,
+		'text' => 'Password',
+		'password' => 1
+	));
+	$lblNewPassword1->show();
+	$tboxNewPassword1 = new Textbox(array(
+		'name' => 'tboxNewPassword1',
+		'father' => 'createUserWND_Container',
+		'x' => 42,
+		'y' => 99,
+		'width' => 214,
+		'password' => 1
+	));
+	$tboxNewPassword1->show();
+	$tboxNewPassword1->addEnterEvent('tryNewUser('.$myPid.', '.$checknum.');');
+	
+	$lblNewPassword2 = new Label(array(
+		'name' => 'lblNewPassword2',
+		'father' => 'createUserWND_Container',
+		'x' => 43,
+		'y' => 133,
+		'text' => 'Retype pass'
+	));
+	$lblNewPassword2->show();
+	$tboxNewPassword2 = new Textbox(array(
+		'name' => 'tboxNewPassword2',
+		'father' => 'createUserWND_Container',
+		'x' => 42,
+		'y' => 145,
+		'width' => 214,
+		'password' => 1
+	));
+	$tboxNewPassword2->show();
+	$tboxNewPassword2->addEnterEvent('tryNewUser('.$myPid.', '.$checknum.');');
+	
+	$lblNewLanguage = new Label(array(
+		'name' => 'lblNewLanguage',
+		'father' => 'createUserWND_Container',
+		'x' => 43,
+		'y' => 179,
+		'text' => 'Language'
+	));
+	$lblNewLanguage->show();
+	$selectNewLanguage = new Select(array(
+		'name' => 'selectNewLanguage',
+		'father' => 'createUserWND_Container',
+		'x' => 42,
+		'y' => 192,
+		'width' => 218
+	));
+	$selectNewLanguage->show();
+	
+	$imgCreateAccount = new Imagebox(array(
+		'name' => 'imgCreateAccount',
+		'father' => 'createUserWND_Container',
+		'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeLogin/themes/default/gfx/enter.png',
+		'realname' => EYE_ROOT.'/'.EXTERN_DIR.'/apps/eyeLogin/themes/default/gfx/enter.png',
+		'alt' => 'eyeLogin',
+		'x' => 48,
+		'y' => 19,
+		'vert'=> 1,
+		'horiz'=> 1,
+		'cssClass'=> 'cPointer'
+	));
+	$imgCreateAccount->show();
+	$imgCreateAccount->addEvent('onclick', 'tryNewUser('.$myPid.', '.$checknum.');');
+	$lblCreateAccount = new Label(array(
+		'name' => 'lblCreateAccount',
+		'father' => 'createUserWND_Container',
+		'x' => 75,
+		'horiz' => 1,
+		'y' => 22,
+		'vert' => 1,
+		'text' => 'Create account'
+	));
+	$lblCreateAccount->show();
+	$lblCreateAccount->addEvent('onclick', 'tryNewUser('.$myPid.', '.$checknum.');');
+}
+	
+$eyeOSLogo = new Imagebox(array(
+	'name' => 'ey_eOSLogo',
+	'father' => 'eyeLoginWND_Container',
+	'url' => "index.php?version=".EXTERN_CACHE_VERSION."&extern=apps/eyeLogin/themes/default/gfx/eyeoslogo.png",
+	'realname' => EYE_ROOT.'/'.EXTERN_DIR.'/apps/eyeLogin/themes/default/gfx/eyeoslogo.png',
+	'alt' => 'eyeOS',
+	'x'=> 115,
+	'y'=> 260,
+	'width' => 68,
+	'height' => 88
+));
+$eyeOSLogo->show(0);
+
+$lblPoweredByeyeOS = new Label(array(
+	'name' => 'lblPoweredByeyeOS',
+	'father' => 'eyeApps',
+	'x' => 10,
+	'y' => 10,
+	'horiz' => 1,
+	'vert' => 1,
+	'text' => 'Powered by eyeOS'
+));
+$lblPoweredByeyeOS->show(1);
+$lblPoweredByeyeOS->setCSS(array('color' => 'white'));
+
+//Styling section
+if(!IE) {
+	$tboxUsername->setCss(array(
+		'border' => 'none',
+		'background-color' => 'transparent',
+		'background-image' => 'url(index.php?extern=apps/eyeLogin/themes/default/gfx/box_x.png)',
+		'height' => '24px',
+		'background-repeat' => 'no-repeat',
+		'padding-top' => '4px',
+		'padding-left' => '5px',
+	));
+	
+	$tboxPassword->setCss(array(
+		'border' => 'none',
+		'background-color' => 'transparent',
+		'background-image' => 'url(index.php?extern=apps/eyeLogin/themes/default/gfx/box.png)',
+		'height' => '24px',
+		'background-repeat' => 'no-repeat',
+		'padding-top' => '4px',
+		'padding-left' => '5px',
+	));
+	
+	$selectSessionLanguage->setCss(array(
+		'border' => 'none',
+		'height' => '14px',
+		'padding-left' => '1px',
+		'margin-left' => '4px'
+	));
+	
+
+	eyeX('updateCss', array('name' => $myPid.'_lblEnter_Container', 'property' => 'z-index', 'value' => '100'));
+	eyeX('updateCss', array('name' => $myPid.'_imgEnter_Container', 'property' => 'z-index', 'value' => '100'));
+	eyeX('updateCss', array('name' => $myPid.'_ey_eOSLogo_Container', 'property' => 'z-index', 'value' => '-1'));
+	$tboxUsername->addEvent('onfocus', 'document.getElementById("'.$myPid.'_tboxUsername").style.backgroundImage ="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box_x.png)";');
+	$tboxUsername->addEvent('onblur', 'document.getElementById("'.$myPid.'_tboxUsername").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box.png)";');
+	$tboxPassword->addEvent('onfocus', 'document.getElementById("'.$myPid.'_tboxPassword").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box_x.png)";');
+	$tboxPassword->addEvent('onblur', 'document.getElementById("'.$myPid.'_tboxPassword").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box.png)";');
+	if(ALLOW_USER_REGISTER == 1) {
+		eyeX('updateCss', array('name' => $myPid.'_lblNewUser_Container', 'property' => 'z-index', 'value' => '100'));
+		eyeX('updateCss', array('name' => $myPid.'_imgNewUser_Container', 'property' => 'z-index', 'value' => '100'));
+		$tboxNewUsername->addEvent('onfocus', 'document.getElementById("'.$myPid.'_tboxNewUsername").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box_x.png)";');
+		$tboxNewUsername->addEvent('onblur', 'document.getElementById("'.$myPid.'_tboxNewUsername").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box.png)";');
+		$tboxNewPassword1->addEvent('onfocus', 'document.getElementById("'.$myPid.'_tboxNewPassword1").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box_x.png)";');
+		$tboxNewPassword1->addEvent('onblur', 'document.getElementById("'.$myPid.'_tboxNewPassword1").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box.png)";');
+		$tboxNewPassword2->addEvent('onfocus', 'document.getElementById("'.$myPid.'_tboxNewPassword2").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box_x.png)";');
+		$tboxNewPassword2->addEvent('onblur', 'document.getElementById("'.$myPid.'_tboxNewPassword2").style.backgroundImage="url(index.php?extern=apps/eyeLogin/themes/default/gfx/box.png)";');
+	}
+}
+
+eyeX('updateCss', array('name' => $myPid.'_eyeLoginWND_Container', 'property' => 'color', 'value' => '#FFFFFF'));
+
+$cssTitle = array(
+	'color' => '#FFF',
+	'font-family'=>'Verdana',
+	'font-size'=>'11px',
+	'font-weight'=>'700',
+	'cursor'=>'pointer'
+);
+
+$lblEnter->setCSS($cssTitle);
+
+if(ALLOW_USER_REGISTER == 1) {
+	eyeX('updateCss', array('name' => $myPid.'_createUserWND_Container', 'property' => 'color', 'value' => '#FFFFFF'));
+	$lblCreateAccount->setCSS($cssTitle);
+	$lblNewUser->setCSS($cssTitle);
+}
+
+//Adding current languages
+$langs[0] = array('English','en');
+$dir = EYE_ROOT.'/'.APP_DIR.'/'.APP_CONF_SHARE.'/i18n/';
+if(vfs('isdir',array($dir))){
+	global $currentUser;
+	$oldUser = $currentUser;
+	$currentUser = ROOTUSER;
+	$langFiles = vfs('real_getDirContent',array($dir,'*.xml'));
+
+	foreach($langFiles as $file){
+		$fileLang = utf8_basename($file,'.xml');
+		$data = eyeXML('getXMLfile',array($file));
+		$langs[] = array($data['lang'][0]['name'][0],$fileLang);
+	}
+	$currentUser = $oldUser;
+}
+
+foreach($langs as $lang) {
+	if(ALLOW_USER_REGISTER == 1) {
+		if ($lang[1] == i18n('getLang')) {
+			$selectNewLanguage->addOption($lang[0], $lang[1], 1);
+		} else {
+			$selectNewLanguage->addOption($lang[0], $lang[1]);
+		}
+	}
+	$selectSessionLanguage->addOption($lang[0], $lang[1]);
+}
+$_SESSION['tmpLangs'] = $langs;
+unset($langs);
+
+?>

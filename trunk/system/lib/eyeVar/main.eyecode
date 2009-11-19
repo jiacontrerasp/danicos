@@ -1,0 +1,58 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+function lib_eyeVar_set($params=null) {
+	$name = $params[0];
+	$content = $params[1];
+	
+	global $myPid;
+	
+	if(!is_array($_SESSION['eyeVar'])) {
+		$_SESSION['eyeVar'] = array();
+	}
+	
+	if(!is_array($_SESSION['eyeVar'][$myPid])) {
+		$_SESSION['eyeVar'][$myPid] = array();
+	}
+	
+	$_SESSION['eyeVar'][$myPid][$name] = $content;
+}
+
+function lib_eyeVar_get($params=null) {
+	$name = $params[0];
+	global $myPid;
+	return $_SESSION['eyeVar'][$myPid][$name];
+}
+
+function lib_eyeVar_unset($params=null) {
+	$name = $params[0];
+	global $myPid;
+	unset($_SESSION['eyeVar'][$myPid][$name]);	
+}
+
+function lib_eyeVar_clear($params=null) {
+	global $myPid;
+	unset($_SESSION['eyeVar'][$myPid]);
+}
+
+?>

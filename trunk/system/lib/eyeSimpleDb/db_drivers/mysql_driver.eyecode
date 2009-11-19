@@ -1,0 +1,206 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU General Public License Version 3 (GPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/gpl.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+/*
+*This class i a filled interface for mysql database.
+*/
+class mysqlDriver implements dbDriver{
+	
+	public $error;//storage the error text when it appears (the i18n is php dependence)
+	public $conn;//A conection link (in dbDriver for txt is the file descriptor).
+	public $result;//save a pure result returned from a database engine
+	
+	//Constructor, check if mysql function are available
+	public function __construct($params=null){
+		if(!function_exists('mysql_connect')){
+			errorCodes('setErrorCode',array(DB_NO_SUPPORT));
+			return false;
+		}
+
+		if($params !=null && !empty($params['host']) && !empty($params['login'])){
+			if(!$this->connect($params)){
+				return false;
+			}
+		}
+		if(!empty($this->conn) && !empty($params['dbName'])){
+			if(!$this->selectDb($params)){
+				return false;
+			}
+		}
+		return true;
+	}
+	static function getObject($params){
+		return new mysqlDriver($params);
+	}
+	//Do the necesary for communicate with database (in dbDriver for txt open the file etc 
+	public function connect($params){
+		$host = $params['host'];
+		$login = $params['login'];
+		$password = '';
+		//If password is set in params, set it.
+		if($params['password']){
+			$password = $params['password'];
+		}
+		$conn = @mysql_connect($host,$login,$password);
+		if($conn == false){
+			errorCodes('setErrorCode',array(DB_NO_CONNECT));
+			$this->error = mysql_error();
+			return false;
+		}
+		//Setting connection for a driver instance
+		$this->conn = $conn;
+		return true;
+	}
+	
+	//Select db.
+	public function selectDb($params){
+		$dbName = $params['dbName'];
+		$db_selected = mysql_select_db($dbName,$this->conn);
+		if(!$db_selected){
+			errorCodes('setErrorCode',array(DB_NO_SELECTDB));
+			$this->error = mysql_error();
+			return false;
+		}
+		return true;
+	}
+	
+	//Do a query and storage the query results in class vars, the results can change beteewn dbDrivers.
+	public function query($params){
+		$queryString = $params['query'];
+		$result = mysql_query($queryString,$this->conn);
+		if(!$result){
+			$this->error = mysql_error();
+			return false;
+		}
+
+		$this->result = $result;
+		if(isset($params['type']) && !empty($params['type'])){
+			$callFunction = 'get_'.$params['type'].'_result';
+			if(method_exists($this,$callFunction)){
+				return call_user_func(array($this,$callFunction));
+			}
+		}
+		return true;
+	}
+
+	//Fetch a results for select query.
+	private function get_select_result(){
+		//affect rows if any rows be affected, set the correct state and return.
+		$this->affectedRows = mysql_num_rows($this->result);
+		if($this->affectedRows == 0){
+			return false;
+		}
+
+		//At the moment only assoc fetch is implemented because is not significantly slower than row and provice add values
+		while($row = mysql_fetch_assoc($this->result)){
+			$this->resultRows[] = $row;
+		}
+
+		//Return array
+		$arrayReturn = array('assoc'=>$this->resultRows,'affected'=>$this->affectedRows);
+		return $arrayReturn;
+	}
+
+	//Fetch a results for update query
+	private function get_update_result(){
+		$this->affectedRows = $this->get_affected_rows();
+		$returnArray = array('affected'=>$this->affectedRows);
+		return $returnArray;
+	}
+
+	//Fetch a results for insert query
+	private function get_insert_result(){
+		$this->affectedRows = $this->get_affected_rows();
+		$returnArray = array('affected'=>$this->affectedRows);
+		return $returnArray;
+	}
+
+	//Fetch a results for delete query
+	private function get_delete_result(){
+		$this->affectedRows = $this->get_affected_rows();
+		$returnArray = array('affected'=>$this->affectedRows);
+		return $returnArray;
+	}
+
+	private function get_affected_rows(){
+		return mysql_affected_rows($this->conn);
+	}
+	//Free a result storage, class vars and posible php vars.
+	public function freeResult(){
+		if(!mysql_free_result($this->result)){
+			return false;
+		}
+	}
+
+	public function prepareQuery($params){
+		return $this->parseQuery($params);
+	}
+	static function parseQuery($params){
+		if(!$params['query'] || !$params['values']){
+			return false;
+		}
+		$queryString = $params['query'];
+		$arrayValues = $params['values'];
+
+		//If count is not set calcule it automaticaly
+		if(!isset($params['count'])){
+			$params['count'] = substr_count($queryString,'?');
+		}
+
+		if(count($arrayValues) < $params['count']){
+			return false;
+		}
+		$query = '';
+		foreach($arrayValues as $value){
+			//Parsing the value
+			$value = mysqlDriver::parseValue($value);
+			//replace ? for value
+
+			$tokenPos = strpos($queryString,'?');//token position
+			$query .= substr($queryString,0,$tokenPos);//safe part
+			$queryString = substr($queryString,$tokenPos+1,strlen($queryString));//next part to be parsed
+			$query .= "\"$value\"";//Adding value
+		}
+		$query .= $queryString;//rest of query
+		return $query;
+	}
+
+	static function parseValue($value){
+		$value = str_replace('\\','\\\\',$value);
+		$value = str_replace("'","\'",$value);
+		$value = str_replace('"','\"',$value);
+		return $value;
+	}
+	//Close conection with db server (in dbDriver txt for example close the file descriptor).
+	public function close(){
+		return mysql_close($this->conn);
+	}
+
+	public function __destruct(){
+		if(!empty($this->conn)){
+			$this->close();
+		}
+	}
+}
+
+?>

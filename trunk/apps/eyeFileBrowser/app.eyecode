@@ -1,0 +1,297 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+function eyeFileBrowser_run($params=null) {
+	if($params[0]) {
+		$pathToGo = $params[0];
+	}
+	else {
+		$pathToGo = '';
+	}
+	
+	$mainWin = new Window(array(
+		'name' => 'eyeFileBrowser_WND',
+		'father' => 'eyeApps',
+		'cent' => 1,
+		'type' => NORMAL_WINDOW,
+		'height' => 500,
+		'width' => 730,
+		'title' => 'Advanced File Browser',
+		'sigResize' => 'windowResize',
+		'sendResizeMsg' => 1,
+		'savePosition' => 1
+	));
+	$mainWin->show();
+	
+	//Call dropIcon
+	$myWidgetDrop = new widgetDrop(array(
+		'name'=>'eyeFileBrowser_WND_drag',
+		'father'=>'eyeFileBrowser_WND_Content'
+	));	
+	$myWidgetDrop->show();
+	
+	$toolbar = new Toolbar(array(
+		'name' => 'toolbar_TLB',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 5,
+		'y' => 5
+	));
+	$toolbar->show();
+	
+	/* PATH TEXTBOX */
+	$pathTextbox = new Textbox(array(
+		'name' => 'path_TXTBOX',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 2,
+		'y' => 62,
+		'width' => $GLOBALS['eyeFileBrowser_WND']->width - 84,
+		'text' => '',
+		'enabled' => 1
+	));
+	$pathTextbox->show();
+	$pathTextbox->setCss(array(
+		'height' => '18px',
+		'font-size' => '14px',
+		//'background' => 'transparent url(index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/20x20/home.png) no-repeat scroll 2pt 50%',
+		'padding-left' => '30px'
+	));
+	
+	$homeImage = new Imagebox(array(
+		'name' => 'home_IMG',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/20x20/home.png',
+		'x' => 6,
+		'y' => 63,
+		'disableMsg' => 0,
+		'alt' => 'Home'
+	));
+	$homeImage->show();
+	$homeImage->setCss(array('cursor'=>'Pointer'));
+	
+	/* GO BUTTON */
+	$goButton = new Button(array(
+		'name' => 'go_BTN',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'caption' => 'Go',
+		'x' => $mainWin->width - 46,
+		'y' => 62,
+		'width' => 40,
+		'enabled' => 1,
+		'signal' => 'path_TXTBOX'
+	));
+	
+	$listFilesOptionsLabel = new Label(array(
+		'name' => 'listFilesOptions_LBL',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 4,
+		'y' => 92,
+		'text' => 'Files list options:'
+	));
+	$listFilesOptionsLabel->show();
+	$listFilesOptionsLabel->setCss(array('font-weight' => 'bold'));
+	
+	/* FILTER LABEL/TEXTBOX */
+	$filterLabel = new Label(array(
+		'name' => 'filter_LBL',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 140,
+		'y' => 92,
+		'text' => 'Filter:'
+	));
+	$filterLabel->show();
+	$filterTextbox = new Textbox(array(
+		'name' => 'filter_TXTBOX',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 170,
+		'y' => 88,
+		'width' => 60,
+		'text' => '*'
+	));
+	$filterTextbox->show();
+	
+	/* DIR FIRST CHECKBOX */
+	$dirFirstCheckbox = new Checkbox(array(
+		'name' => 'listFilesFlags_dirFirst_CHKBOX',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 250,
+		'y' => 86,
+		'text' => 'Dir first',
+		'checked' => 1
+	));
+	$dirFirstCheckbox->show();
+	
+	/* DIR IGNORE PATTERN CHECKBOX */
+	$dirIgnorePatternCheckbox = new Checkbox(array(
+		'name' => 'listFilesFlags_dirIgnorePattern_CHKBOX',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 320,
+		'y' => 86,
+		'text' => 'Dir ignore filter',
+		'checked' => 1
+	));
+	$dirIgnorePatternCheckbox->show();
+	
+	/* ONLY DIR CHECKBOX */
+	$onlyDirCheckbox = new Checkbox(array(
+		'name' => 'listFilesFlags_onlyDir_CHKBOX',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 434,
+		'y' => 86,
+		'text' => 'Only dir',
+		'checked' => 0
+	));
+	$onlyDirCheckbox->show();
+	
+	/* RECURSIVE SIZES CHECKBOX */
+	$recursiveSizesCheckbox = new Checkbox(array(
+		'name' => 'recursiveSizes_CHKBOX',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'x' => 510,
+		'y' => 86,
+		'text' => 'Recursive dir sizes',
+		'checked' => 0
+	));
+	$recursiveSizesCheckbox->show();
+	
+	
+	$goButton->addFriend($filterTextbox);
+	$goButton->addFriend($dirFirstCheckbox);
+	$goButton->addFriend($dirIgnorePatternCheckbox);
+	$goButton->addFriend($onlyDirCheckbox);
+	$goButton->addFriend($recursiveSizesCheckbox);
+	$goButton->show(0);
+	
+	$pathTextbox->addFriend($filterTextbox);
+	$pathTextbox->addFriend($dirFirstCheckbox);
+	$pathTextbox->addFriend($dirIgnorePatternCheckbox);
+	$pathTextbox->addFriend($onlyDirCheckbox);
+	$pathTextbox->addFriend($recursiveSizesCheckbox);
+	$pathTextbox->addEnterEventMsg('path_TXTBOX');
+	
+	$filterTextbox->addFriend($pathTextbox);
+	$filterTextbox->addFriend($dirFirstCheckbox);
+	$filterTextbox->addFriend($dirIgnorePatternCheckbox);
+	$filterTextbox->addFriend($onlyDirCheckbox);
+	$filterTextbox->addFriend($recursiveSizesCheckbox);
+	$filterTextbox->addEnterEventMsg('path_TXTBOX');
+	
+	
+	/* TOOLBAR ITEMS */
+	$toolbar->addItem(
+		'cdUp_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&extern=apps/eyeFiles/gfx/Top.png',
+		'Go Up',
+		array($filterTextbox, $dirFirstCheckbox, $dirIgnorePatternCheckbox, $onlyDirCheckbox, $recursiveSizesCheckbox)
+	);
+	$toolbar->addItem(
+		'reload_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/refresh.png',
+		'Reload',
+		array($filterTextbox, $dirFirstCheckbox, $dirIgnorePatternCheckbox, $onlyDirCheckbox, $recursiveSizesCheckbox)
+	);
+	$toolbar->addItem(
+		'search_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/search.png',
+		'Search'
+	);
+	$toolbar->addLine();
+	$toolbar->addItem(
+		'properties_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/i.png',
+		'Properties'
+	);
+	$toolbar->addItem(
+		'rename_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/edit.png',
+		'Rename'
+	);
+	$toolbar->addItem(
+		'delete_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/delete.png',
+		'Delete'
+	);
+	$toolbar->addItem(
+		'edit_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/eyeNotes.png',
+		'Edit'
+	);
+	$toolbar->addLine();
+	$toolbar->addItem(
+		'create_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/create.png',
+		'Create'
+	);
+	$toolbar->addItem(
+		'makeDir_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/newfolder.png',
+		'Create Dir'
+	);
+	$toolbar->addItem(
+		'createLink_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/create.png',
+		'Create Link'
+	);
+	$toolbar->addLine();
+	$toolbar->addItem(
+		'fork_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/20x20/exec.png',
+		'Duplicate window'
+	);
+	
+	$currentFolder = new Hidden(array(
+		'name' =>'currentFolder_HID',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'text' => ''
+	));
+	reqLib('eyeWidgets','serialize',array($currentFolder));
+	
+	$dragParams = new Hidden(array(
+		'name' =>'dragParams_HID',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'text' => ''
+	));
+	reqLib('eyeWidgets','serialize',array($dragParams));
+	
+	/**
+	 * @see registerPassword()
+	 * @see autoFillPassword()
+	 * 
+	 * array (
+	 * 		[scheme://user@iphost:port] => password
+	 * )
+	 */
+	$passwordsCache = new Hidden(array(
+		'name' =>'passwordsCache_HID',
+		'father' => 'eyeFileBrowser_WND_Content',
+		'text' => serialize(array())
+	));
+	reqLib('eyeWidgets','serialize',array($passwordsCache));
+	
+	global $checknum;
+	eyeX('rawjs',array('js' => 'sendMsg('.$checknum.', "init", eyeParam("path", "'.$pathToGo.'"));'));
+}
+
+function eyeFileBrowser_end($params=null) {
+	reqLib('eyeWidgets','unserialize');
+}
+?>

@@ -1,0 +1,10 @@
+<package>
+	<name>eyeMessages</name>
+	<category>Office</category>
+	<version>2.0</version>
+	<description>Internal Messaging</description>
+	<author>eyeOS Team</author>
+	<license>GPL</license>
+	<type>Application</type>
+	<icon>index.php?extern=icons/48x48/eyeMessages.png&amp;theme=1</icon>
+</package>

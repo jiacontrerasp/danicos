@@ -1,0 +1,113 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+class EyeOSFile_FSIModule extends FSIModule {
+
+	private static $instance = null;
+	
+	public static function getInstance() {
+		if (is_null(self::$instance)) {
+			self::$instance = new self();
+			self::$instance->load();
+		}
+		return self::$instance;
+	}
+	
+	public function load($params=null) {
+		$this->moduleName = 'EyeOSFile';
+		$this->modulePath = FSI_FILEMODULES_DIR.'/GenericFile/LocalFile';
+		$this->classFiles = array(
+			$this->modulePath.'/'.$this->moduleName.'/'.$this->moduleName.EYE_CODE_EXTENSION
+		);
+	}
+	
+	public function unload() {
+		
+	}
+	
+	/**
+	 * 
+	 * @param array $urlParts
+	 * @param array $params
+	 * @return EyeOSFile
+	 */
+	public function createFileFromUrlParts($urlParts, $params=null) {
+		//cloning the URL parts array to perform some resolving for eyeOSFile subclasses
+		$urlParts_tmp = $urlParts;
+		$urlParts_tmp['path'] = AdvancedPathLib::realpath($urlParts_tmp['path']);
+
+		$modules = $this->getSubModules();
+		foreach($modules as $module) {
+			$file = $module->createFileFromUrlParts($urlParts, $params);
+			if (!is_null($file)) {
+				return $file;
+			}
+		}
+		$eyeOSRelativeResolvedPath = AdvancedPathLib::resolvePath($urlParts_tmp['path'], EYE_ROOT, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+		if ($eyeOSRelativeResolvedPath) {
+			$this->includeClassDependenciesNow();
+			return new EyeOSFile(AdvancedPathLib::buildURL($urlParts_tmp), $params);
+		}
+		return null;
+		
+		//----------------
+		
+		/*if ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_EYEOS) {
+			require_once(EYEOSFILE_CLASSES_PATH.'eyeos_file/SpecialEyeOSFile'.EYE_CODE_EXTENSION);
+			return new SpecialEyeOSFile($path, $params);
+		}
+		if ($urlParts['scheme'] == 'file') {
+			$eyeOSRelativeResolvedPath = AdvancedPathLib::resolvePath($urlParts['path'], EYE_ROOT, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+			if ($eyeOSRelativeResolvedPath) {
+				//USER FILES
+				if(preg_match('`^/'.USERS_DIR.'/.{2}[0-9]{1}/.+/'.FILES_USER_DIR.'`', $eyeOSRelativeResolvedPath)) {
+					require_once(EYEOSFILE_CLASSES_PATH.'eyeos_file/EyeOSVirtualFile'.EYE_CODE_EXTENSION);
+					return new EyeOSVirtualFile($path, $params);
+				}
+				//USER TRASH
+				if(preg_match('`^/'.USERS_DIR.'/(.{2}[0-9]{1})/(.+)/'.TRASH_USER_DIR.'`', $eyeOSRelativeResolvedPath, $matches)) {
+					if (AdvancedPathLib::dirname(AdvancedPathLib::resolvePath($urlParts['path'], EYE_ROOT.'/'.USERS_DIR.'/'.$matches[1].'/'.$matches[2].'/'.TRASH_USER_DIR, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE)) == '/') {
+						require_once(EYEOSFILE_CLASSES_PATH.'eyeos_file/EyeOSVirtualTrash'.EYE_CODE_EXTENSION);
+						return new EyeOSVirtualTrash($path, $params);
+					}
+					else {
+						require_once(EYEOSFILE_CLASSES_PATH.'eyeos_file/EyeOSVirtualFile'.EYE_CODE_EXTENSION);
+						return new EyeOSVirtualFile($path, $params);
+					}
+				}
+				//GROUP FILES
+				if(preg_match('`^/'.GROUPS_DIR.'/.+/'.FILES_USER_DIR.'`', $eyeOSRelativeResolvedPath)) {
+					require_once(EYEOSFILE_CLASSES_PATH.'eyeos_file/EyeOSVirtualFile'.EYE_CODE_EXTENSION);
+					return new EyeOSVirtualFile($path, $params);
+				}
+							
+				//OTHER => SYSTEM
+				require_once(EYEOSFILE_CLASSES_PATH.'eyeos_file/EyeOSSystemFile'.EYE_CODE_EXTENSION);
+				return new EyeOSSystemFile($path, $params);
+			}
+		}*/
+	}
+}
+
+?>

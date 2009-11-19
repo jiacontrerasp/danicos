@@ -1,0 +1,285 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+function eyeFileSearch_run($params=null) {
+	global $currentUser, $myPid;
+	
+	eyeX('rawjs', array('js' => 'console.log("'.print_r($params[1],true).'")'));
+	
+	$initialSearch = $params[0]? $params[0] : '';
+	$initialPath = $params[1]? $params[1]: 'home://localhost/~'.$currentUser;
+	
+	$mainWin = new Window(array(
+		'name' => 'eyeFileSearch_WND',
+		'father' => 'eyeApps',
+		'cent' => 1,
+		'type' => NORMAL_WINDOW,
+		'height' => 500,
+		'width' => 650,
+		'title' => 'Search Files',
+		'sigResize' => 'windowResize',
+		'sendResizeMsg' => 1
+	));
+	$mainWin->show();
+	
+	$toolbar = new Toolbar(array(
+		'name' => 'toolbar_TLB',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 5,
+		'y' => 5
+	));
+	$toolbar->show();
+	
+	/* SEARCH LABEL */
+	$searchLabel = new Label(array(
+		'name' => 'search_LBL',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 144,
+		'y' => 11,
+		'text' => 'Search:'
+	));
+	$searchLabel->show();
+	$searchLabel->setCss(array('font-weight' => 'bold'));
+	
+	/* SEARCH TEXTBOX */
+	$searchTextbox = new Textbox(array(
+		'name' => 'search_TXTBOX',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 210,
+		'y' => 5,
+		'width' => $GLOBALS['eyeFileSearch_WND']->width - 272,
+		'text' => $initialSearch,
+		'enabled' => 1
+	));
+	$searchTextbox->show();
+	$searchTextbox->setCss(array(
+		'height' => '18px',
+		'font-size' => '14px'
+	));
+	
+	/* PATH LABEL */
+	$pathLabel = new Label(array(
+		'name' => 'path_LBL',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 144,
+		'y' => 37,
+		'text' => 'In:'
+	));
+	$pathLabel->show();
+	$pathLabel->setCss(array('font-weight' => 'bold'));
+	
+	/* PATH TEXTBOX */
+	$pathTextbox = new Textbox(array(
+		'name' => 'path_TXTBOX',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 210,
+		'y' => 31,
+		'width' => $GLOBALS['eyeFileSearch_WND']->width - 300,
+		'text' => $initialPath,
+		'enabled' => 1
+	));
+	$pathTextbox->show();
+	$pathTextbox->setCss(array(
+		'height' => '18px',
+		'font-size' => '14px',
+		//'background' => 'transparent url(index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/20x20/home.png) no-repeat scroll 2pt 50%',
+		'padding-left' => '30px'
+	));
+	
+	$browseImage = new Imagebox(array(
+		'name' => 'browse_IMG',
+		'father' => 'eyeFileSearch_WND_Content',
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/20x20/home.png',
+		'x' => 214,
+		'y' => 32,
+		'disableMsg' => 0,
+		'alt' => 'Browse'
+	));
+	$browseImage->show();
+	$browseImage->setCss(array('cursor'=>'Pointer'));
+	
+	/* GO BUTTON */
+	$goButton = new Button(array(
+		'name' => 'go_BTN',
+		'father' => 'eyeFileSearch_WND_Content',
+		'caption' => 'Go',
+		'x' => $mainWin->width - 52,
+		'y' => 5,
+		'width' => 40,
+		'height' => 48,
+		'enabled' => 1
+	));
+	
+	/*
+	 * ADVANCED CRITERIA 
+	 */
+	$advCriteriaContainer = new Container(array(
+		'name' => 'advCriteria_CTNR',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 0,
+		'y' => 60,
+		'width' => $mainWin->width -2,
+		'height' => 24
+	));
+	$advCriteriaContainer->show();
+	service('eyex','rawjs',array('js' => 'document.getElementById("'.$myPid.'_advCriteria_CTNR").className="blockbar";'));
+	reqLib('eyeWidgets','serialize',array($advCriteriaContainer));
+	
+	$advCriteriaLabel = new Label(array(
+		'name' => 'advCriteria_LBL',
+		'father' => 'advCriteria_CTNR',
+		'x' => 144,
+		'y' => 4,
+		'text' => 'Advanced criteria:'
+	));
+	$advCriteriaLabel->show();
+	$advCriteriaLabel->setCss(array('font-weight' => 'bold'));
+	
+	/* CASE INSENSITIVE CHECKBOX */
+	$caseCheckbox = new Checkbox(array(
+		'name' => 'caseInsensitive_CHKBOX',
+		'father' => 'advCriteria_CTNR',
+		'x' => 280,
+		'y' => 2,
+		'text' => 'Case insensitive',
+		'checked' => 1
+	));
+	$caseCheckbox->show();
+	
+	/* ONLY DIR CHECKBOX */
+	$onlyDirCheckbox = new Checkbox(array(
+		'name' => 'onlyDir_CHKBOX',
+		'father' => 'advCriteria_CTNR',
+		'x' => 420,
+		'y' => 2,
+		'text' => 'Only dir',
+		'checked' => 0
+	));
+	$onlyDirCheckbox->show();
+	
+	/* STRICT PATTERN CHECKBOX */
+	$strictPatternCheckbox = new Checkbox(array(
+		'name' => 'strictPattern_CHKBOX',
+		'father' => 'advCriteria_CTNR',
+		'x' => 510,
+		'y' => 2,
+		'text' => 'Strict pattern',
+		'checked' => 0
+	));
+	$strictPatternCheckbox->show();
+	
+	$searchTextbox->addFriend($pathTextbox);
+	$searchTextbox->addFriend($caseCheckbox);
+	$searchTextbox->addFriend($onlyDirCheckbox);
+	$searchTextbox->addFriend($strictPatternCheckbox);
+	$searchTextbox->addEnterEventMsg('go_BTN');
+	$pathTextbox->addFriend($searchTextbox);
+	$pathTextbox->addFriend($caseCheckbox);
+	$pathTextbox->addFriend($onlyDirCheckbox);
+	$pathTextbox->addFriend($strictPatternCheckbox);
+	$pathTextbox->addEnterEventMsg('go_BTN');
+	$goButton->addFriend($searchTextbox);
+	$goButton->addFriend($pathTextbox);
+	$goButton->addFriend($caseCheckbox);
+	$goButton->addFriend($onlyDirCheckbox);
+	$goButton->addFriend($strictPatternCheckbox);
+	$goButton->show(0);
+	
+	
+	/* TABLE FOR FILES LIST */
+	$filesTable = new Sortabletable(array(
+		'name' => 'files_TAB',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 0,
+		'y' => 85,
+		'width' => $GLOBALS['eyeFileSearch_WND']->width - 4,
+		'height' => $GLOBALS['eyeFileSearch_WND']->height - 132,
+		'sortypes' => array('Html','String','Number','String','String','Hidden'),
+		'master' => 5,
+		'theader' => array(' ','Filename','Filesize','Extension','Location','id'),
+		'dblsignal' => 'filesDblClick'
+	));
+	$filesTable->show();
+	$filesTable->setCss(array('white-space' => 'nowrap'));
+	
+	/* TOOLBAR ITEMS */
+	$toolbar->addItem(
+		'reload_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/refresh.png',
+		'Reload'
+	);
+	$toolbar->addLine();
+	$toolbar->addItem(
+		'properties_ITM',
+		'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/i.png',
+		'Properties',
+		array($filesTable)
+	);
+	$toolbar->addLine();
+	
+	$statusBarContainer = new Container(array(
+		'name' => 'statusBar_CTNR',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 0,
+		'y' => $GLOBALS['eyeFileSearch_WND']->height - 45,
+		'width' => $mainWin->width -2,
+		'height' => 20
+	));
+	$statusBarContainer->show();
+	service('eyex','rawjs',array('js' => 'document.getElementById("'.$myPid.'_statusBar_CTNR").className="blockbar";'));
+	reqLib('eyeWidgets','serialize',array($statusBarContainer));
+	
+	$statusLabel = new Label(array(
+		'name' => 'status_LBL',
+		'father' => 'statusBar_CTNR',
+		'x' => 6,
+		'y' => 3,
+		'text' => 'Ready'
+	));
+	$statusLabel->show(0);
+	$statusLabel->setCss(array('color' => '#777777'));
+	
+	$progressBarImage = new Imagebox(array(
+		'name' => 'progressBar_IMG',
+		'father' => 'statusBar_CTNR',
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/progressbar/progressbar_indeterminate_0.png',
+		'x' => $mainWin->width - 208,
+		'y' => 2,
+		'disableMsg' => 1
+	));
+	$progressBarImage->show(0);
+	
+	$cancelSearch = new Hidden(array(
+		'name' =>'cancelSearch_HID',
+		'father' => 'eyeFileSearch_WND_Content',
+		'text' => '0'
+	));
+	$cancelSearch->show();
+	
+	$searchTextbox->focus();
+}
+
+function eyeFileSearch_end($params=null) {
+	reqLib('eyeWidgets','unserialize');
+}
+?>

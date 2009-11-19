@@ -1,0 +1,593 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+/**
+ * @source php.net (http://www.php.net/manual/en/function.realpath.php#40695)
+ * @author ilgarm -at- azeronline.com [getCurrentOS, checkCurrentOS, isRelative, unifyPath, realpath]
+ * @author Nanawel (nanawel -at- eyeos.org) [resolvePath, parse_url, glob, getPhpLocalHackPath, ...]
+ * @version 0.2 / 07-Apr-2009
+ */
+abstract class AdvancedPathLib {	
+	const OS_DETECT = 1;
+	const OS_WINDOWS = 2;
+	const OS_UNIX = 4;
+	
+	const URL_USERPASSWORD_TOKEN = '@';
+	const URL_PASSWORD_TOKEN = ':';
+	const URL_PORT_TOKEN = ':';
+	const URL_QUERY_TOKEN = '?';
+	const URL_FRAGMENT_TOKEN = '#';
+	
+	
+	private static function getCurrentOS() {
+		return strncasecmp(PHP_OS, 'win', 3) === 0? 'Win' : '_Nix';
+	}
+
+	public static function checkCurrentOS($OS) {
+	  if ($OS == self::getCurrentOS()) {
+	        return true;
+	    }
+	    return false;
+	}
+	
+	private static function isRelative($dir) {
+		if (self::checkCurrentOS('Win')) {
+			return (preg_match('/^[a-z]{1}:/i', $dir) == 0);
+		}
+		else {
+			return (preg_match('/^\//', $dir) == 0);
+		}
+	}
+	
+	/**
+	 * Replaces all backslashes (Windows separator) with slashes, then
+	 * replaces all multiple slashes with simple ones.
+	 * @param string $path
+	 * @param boolean $backslashesOnly TRUE to replace backslashes only without then checking double slashes
+	 *                                  (useful for full URL file://... as path), FALSE otherwise
+	 * @return string
+	 */
+	public static function unifyPath($path, $backslashesOnly=false) {
+		$path = strtr($path, '\\', '/');
+		if (!$backslashesOnly) {
+			$path = preg_replace('`//+`', '/', $path);
+		}
+		return $path;
+	}
+	
+	/**
+	 * Return the absolute path corresponding to the given mixed path in
+	 * argument, even if the file/folder does not exist.
+	 * @param string $path
+	 * @param boolean $resolveFromLocalhost TRUE to take into account the server's filesystem to
+	 *                                       resolve absolute path (useful on Windows), FALSE otherwise
+	 * @return string The resolved path.
+	 */
+	public static function realpath($path, $resolveFromLocalhost=true) {
+		if (self::isRelative($path) && $resolveFromLocalhost) {
+			$curdir = self::unifyPath(realpath('.') . '/');
+			$path = $curdir.$path;
+		}
+		/*
+		 * This is the starting point of the system root.
+		 * Left empty for UNIX based and Mac.
+		 * For Windows this is drive letter and semicolon.
+		 */
+		$startPoint = '';
+		if (self::checkCurrentOS('Win') && $resolveFromLocalhost) {
+			$path = self::unifyPath($path);
+			list($startPoint, $path) = explode(':', $path, 2);
+			$startPoint .= ':';
+		}
+		// From now processing is the same for WIndows and Unix, and hopefully for others.
+		$realparts = array();
+		$parts = explode('/', $path);
+		$nbparts = count($parts);
+		for ($i = 0; $i < $nbparts; $i++) {
+			if (strlen($parts[$i]) == 0 || $parts[$i] == '.') {
+				continue;
+			}
+			if ($parts[$i] == '..') {
+				if (count($realparts) > 0) {
+					array_pop($realparts);
+				}
+			}
+			else {
+				array_push($realparts, $parts[$i]);
+			}
+		}
+		return $startPoint.'/'.implode('/', $realparts);
+	}
+	
+	/**
+	 * Returns the full URL corresponding to the URL parts in argument
+	 * @param array $urlParts
+	 * @param int $flags
+	 * 				OS_DETECT: Set it to force detection of the localhost filesystem.
+	 * 				OS_WINDOWS: Set it to force processing assuming a Windows filesystem.
+	 * 				OS_UNIX: Set it to force processing assuming a UNIX filesystem. 
+	 * @return string
+	 */
+	public static function buildURL($urlParts, $flags=self::OS_DETECT) {
+		if ($flags & self::OS_DETECT) {
+			$isWindows = self::checkCurrentOS('Win');
+		}
+		elseif ($flags & self::OS_WINDOWS) {
+			$isWindows = true;
+		}
+		elseif ($flags & self::OS_UNIX) {
+			$isWindows = false;
+		}
+		
+		$scheme = trim($scheme);
+		$scheme = (isset($urlParts['scheme']) && $urlParts['scheme'] != '')? $urlParts['scheme'] : 'file';
+		$userPass = (isset($urlParts['user']) && $urlParts['user'] != '')? $urlParts['user'] : '';
+		$userPass .= (isset($urlParts['pass']) && $urlParts['pass'] != '')? self::URL_PASSWORD_TOKEN.$urlParts['pass'] : '';
+		$userPass .= ($userPass)? self::URL_USERPASSWORD_TOKEN : '';
+		$host = (isset($urlParts['host']) && $urlParts['host'] != '')? $urlParts['host'] : '';
+		$port = (isset($urlParts['port']) && $urlParts['port'] != '')? self::URL_PORT_TOKEN.$urlParts['port'] : '';
+		$query = (isset($urlParts['query']) && $urlParts['query'] != '')? self::URL_QUERY_TOKEN.$urlParts['query'] : '';
+		$fragment = (isset($urlParts['fragment']) && $urlParts['fragment'] != '')? self::URL_FRAGMENT_TOKEN.$urlParts['fragment'] : '';
+		
+		if ($scheme == 'file' && $isWindows) {
+			if (preg_match('/^[a-z]{1}:/i', $urlParts['path']) && $host) {
+				$urlParts['path'] = '/'.$urlParts['path'];
+			}
+		}
+		return $scheme.'://'.$userPass.$host.$port.$urlParts['path'].$query.$fragment;
+	}
+	
+	protected static function removeLastSlash($path) {
+		if (utf8_substr($path, utf8_strlen($path) -1) == '/') {
+		    $path = utf8_substr($path, 0, utf8_strlen($path) -1);
+		}
+		return $path;
+	}
+	
+	/**
+	 * Source: http://fr.php.net/manual/fr/function.fnmatch.php#72490
+	 * Author: soywiz at NOSPAM dot php dot net
+	 * @param string $pattern The pattern in shell-like form (*.txt, *log*, *.[cC], ...)
+	 * @param string $filename The filename to check
+	 * @return boolean TRUE if the given filename matches the pattern, FALSE otherwise
+	 */
+	public static function fnmatch($pattern, $filename) {
+		if (!function_exists('fnmatch')) {
+			//Windows does NOT have fnmatch() so we emulate it
+			$pattern = strtr(preg_quote($pattern, '#'), array('\*' => '.*', '\?' => '.', '\[' => '[', '\]' => ']'));
+			return preg_match('#^'.$pattern.'$#', $filename) > 0;
+		}
+		return fnmatch($pattern, $filename);
+	}
+	
+	const RESOLVEPATH_DEFAULT = 1;
+	//for 2, 3, see OS_DETECT/OS_WINDOWS/OS_UNIX constants
+	const RESOLVEPATH_RETURN_REFDIR_RELATIVE = 8;
+	const RESOLVEPATH_NOT_LOCALHOST = 16;
+	
+	/**
+	 * @param string $path The path of a file to resolve
+	 *                                         (e.g. "/Documents/Images/..",
+	 *                                           or  "./users/jn4/john/files/Documents/Images/..",
+	 *                                           or  "/home/john/eyeos/users/jn4/john/files/Documents/Images/..",
+	 *                                           or  "C:\My Documents\john\eyeos\users\jn4\john\files\Documents\Images\..")
+	 * @param string $referenceDirPath The path of the directory used as a reference for resolution
+	 * @param int $flags
+	 * 				OS_DETECT: Set it to force detection of the localhost filesystem.
+	 * 				OS_WINDOWS: Set it to force resolution assuming a Windows filesystem.
+	 * 				OS_UNIX: Set it to force resolution assuming a UNIX filesystem. 
+	 * 				RESOLVEPATH_RETURN_REFDIR_RELATIVE:	Set it to get a resolved path from current PHP directory (getcwd)
+	 *                                              	(e.g. "./users/jn4/john/files/Documents"),
+	 * 													or don't to get a resolved path in the reference folder (e.g. "/Documents")
+	 * 				RESOLVEPATH_NOT_LOCALHOST: Set it to resolve the given path as a normal file on the filesystem,
+	 * 										   or don't to resolve it according to the reference path only.
+	 * @return mixed The resolved path or FALSE if the given path is not in the reference directory or if an error occured
+	 * WARNING: * This function is not to be used on URL as (file://..., ftp://..., etc.), only *simple* paths (/my/simple/path).
+	 *          * This function may output incorrect results on Windows platforms when $path is located on a different
+	 *            drive letter from $referenceDirPath.
+	 */	
+	public static function resolvePath($path, $referenceDirPath, $flags=self::RESOLVEPATH_DEFAULT) {
+		if ($flags & self::OS_DETECT) {
+			$isWindows = self::checkCurrentOS('Win');
+		}
+		elseif ($flags & self::OS_WINDOWS) {
+			$isWindows = true;
+		}
+		elseif ($flags & self::OS_UNIX) {
+			$isWindows = false;
+		}
+		$path = AdvancedPathLib::unifyPath($path);
+		$resolveOnLocalHost = !($flags & RESOLVEPATH_NOT_LOCALHOST);
+		
+		//both following var are used in the next different parts to analyze its structure, but we initialize them
+		//now to avoid multiple calls to self::realpath()
+		$absolutePath = self::realpath($path, $resolveOnLocalHost);
+		$absolutePathReferenceDir = self::realpath($referenceDirPath, $resolveOnLocalHost);
+						
+		//$path is a relative path to the current PHP dir
+		// -OR-  $path is a full absolute path
+		if (stripos($path, './') === 0 || $path == $absolutePath) {
+			//designated path is NOT in the reference directory => ERROR
+			if (stripos($absolutePath, $absolutePathReferenceDir) !== 0) {
+				return false;	//TODO: exception
+			}
+			$path = $absolutePath;
+		}
+		
+		//$path is an absolute path
+		// UN*X: /home/john/eyeos/users/jn4/john/files/Documents
+		// WIN:  C:\My Documents\john\eyeos\users\jn4\john\files\Documents
+		if (stripos($path, $absolutePathReferenceDir) === 0) {	
+			$relativePath = utf8_substr($absolutePath, utf8_strlen($absolutePathReferenceDir));
+			$path = $relativePath;
+		}
+		
+		//$path is a relative path
+		if (stripos($path, $referenceDirPath) === 0) {
+			$relativePath = utf8_substr($path, utf8_strlen($referenceDirPath));
+			$path = $relativePath;
+		}
+		
+		if ($isWindows) {
+			//$path starts with a Windows drive letter but referenceDir doesn't => ERROR
+			if (preg_match('/^([a-z]{1}):/i', $path)) {
+				return false;	//TODO: exception
+			}
+		}
+		
+		//designated path is NOT in the reference directory => ERROR
+		if (stripos(self::realpath($referenceDirPath.self::dirname($path)), $absolutePathReferenceDir) === false) {
+			return false;	//TODO: exception
+		}
+		$resolvedPath = '';
+		if ($flags & self::RESOLVEPATH_RETURN_REFDIR_RELATIVE) {
+			$resolvedPath = '/'.utf8_substr(self::realpath($referenceDirPath.'/'.$path),
+							utf8_strlen(self::unifyPath($absolutePathReferenceDir.'/')));
+		}
+		else {
+			$resolvedPath = '.'.utf8_substr(self::realpath($referenceDirPath.'/'.$path),
+							utf8_strlen(self::realpath('.')));
+		}
+		return $resolvedPath;
+	}
+	
+	const PARSE_URL_DEFAULT = 1;
+	//for 2, 4, see OS_DETECT/OS_WINDOWS/OS_UNIX constants
+	const PARSE_URL_NO_AUTOSET_SCHEME = 8;
+	const PARSE_URL_KEEPFRAGMENT = 16;
+	const PARSE_URL_FRAGMENT2PATH = 32;
+	const PARSE_URL_DONTRESOLVE = 64;
+	static $PARSE_URL_FRAGMENT2PATH_PROTOCOLS = array('file');
+	
+	/**
+	 * Registers a handling style of fragments (parts of the URL after "#") for a specified protocol.
+	 * Example: The file:// protocol must consider the fragment inside the path
+	 * 			EXAMPLE URL:	file://my/path/My song #1.mp3
+	 * 			WRONG:			[path] "/my/path/My song "
+	 * 							[fragment] "1.mp3"
+	 * 			CORRECT:		[path] "/my/path/My song #1.mp3"
+	 * 							[fragment] (none)
+	 *
+	 * @param array $schemes An array containing the schemes to set up
+	 * @param boolean $enable TRUE to consider fragment as part of the path, FALSE to keep it as is
+	 */
+	public function parse_url_registerFragment2PathProtocol(array $schemes, $enable=true) {
+		foreach($schemes as $scheme) {
+			if ($enable) {
+				if (!in_array($scheme, self::$PARSE_URL_FRAGMENT2PATH_PROTOCOLS)) {
+					self::$PARSE_URL_FRAGMENT2PATH_PROTOCOLS[] = $scheme;
+				}
+			}
+			else {
+				if (($key = array_search($scheme, self::$PARSE_URL_FRAGMENT2PATH_PROTOCOLS)) !== false) {
+					unset(self::$PARSE_URL_FRAGMENT2PATH_PROTOCOLS[$key]);
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Parses a URL and return its components
+	 * 
+	 * @see parse_url() in PHP manual
+	 * @param string $path The URL/path to parse
+	 * @param int $flags
+	 * 				OS_DETECT: Set it to force detection of the localhost filesystem.
+	 * 				OS_WINDOWS: Set it to force parsing assuming a Windows filesystem.
+	 * 				OS_UNIX: Set it to force parsing assuming a UNIX filesystem.
+	 * 				PARSE_URL_NO_AUTOSET_SCHEME: Set it to prevent autosetting scheme (file:// by default) in the returned components.
+	 * 				PARSE_URL_KEEPFRAGMENT: Set it to force keeping detected fragment even if the scheme may not support it.
+	 * 				PARSE_URL_FRAGMENT2PATH: Set it to force the fragment to be considered within the path component.
+	 * 				PARSE_URL_DONTRESOLVE: Set it to prevent resolving path (if file:// for example).
+	 * @return array
+	 */
+	public static function parse_url($path, $flags=self::PARSE_URL_DEFAULT) {
+		if ($flags & self::OS_DETECT) {
+			$isWindows = self::checkCurrentOS('Win');
+		}
+		elseif ($flags & self::OS_WINDOWS) {
+			$isWindows = true;
+		}
+		elseif ($flags & self::OS_UNIX) {
+			$isWindows = false;
+		}
+		if ($isWindows) {
+			$path = self::unifyPath($path, true);
+		}
+		
+		//=========== URL ANALYZE (begin) ===========
+		//We first try with PHP standard function parse_url() but this one may fail on unknown schemes
+		//so in this case we try regexp (slower) to break it down into parts.
+		$errorParsing = false;
+		$urlParts = @parse_url($path);
+		if ($urlParts === false) {
+			/** @see http://gbiv.com/protocols/uri/rfc/rfc3986.html#regexp */
+			//(extracts only scheme, "authority" (user-pass-host-port), path, query and fragment)
+			if (preg_match('`^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?$`', $path, $matches)) {
+				$urlParts = array();
+				if (isset($matches[2])) { $urlParts['scheme'] = $matches[2]; }
+				if (isset($matches[4]) && !empty($matches[4])) {
+					//extract user, pass, host and port from authority
+					if (preg_match('`^(([^:/?#]+)(:([^:/?#]+))?@)?([^:/?#@]+)(:([0-9]{1,5}))?$`', $matches[4], $matches2)) {
+						if (isset($matches2[2]) && !empty($matches2[2])) { $urlParts['user'] = $matches2[2]; }
+						if (isset($matches2[4]) && !empty($matches2[4])) { $urlParts['pass'] = $matches2[4]; }
+						if (isset($matches2[5]) && !empty($matches2[5])) { $urlParts['host'] = $matches2[5]; }
+						if (isset($matches2[7]) && !empty($matches2[7])) { $urlParts['port'] = $matches2[7]; }
+					}
+					else {
+						$errorParsing = true;
+					}
+				}
+				if (isset($matches[5]) && !empty($matches[5])) { $urlParts['path'] = $matches[5]; } else { $urlParts['path'] = '/'; }
+				if (isset($matches[7]) && !empty($matches[7])) { $urlParts['query'] = $matches[7]; }
+				if (isset($matches[9]) && !empty($matches[9])) { $urlParts['fragment'] = $matches[9]; }
+			}
+			else {
+				$errorParsing = true;
+			}
+		}
+		if ($errorParsing) {
+			throw new Exception('AdvancedPathLib::parse_url(): Unable to parse given path/URL "'.$path.'"');
+		}
+		//=========== URL ANALYZE (end) ===========
+		
+		if (!($flags & self::PARSE_URL_NO_AUTOSET_SCHEME) && !isset($urlParts['scheme'])) {
+			$urlParts['scheme'] = 'file';
+		}
+		
+		//Windows platforms have the following special corrective behaviour
+		if ($isWindows) {
+			if (isset($urlParts['path'])) {
+				$urlParts['path'] = self::unifyPath($urlParts['path']);
+			}
+			//misunderstood scheme?
+			if (preg_match('/^[a-z]{1}$/i', $urlParts['scheme'])) {
+				//misunderstood path?
+				if (isset($urlParts['host']) && $urlParts['host'] != 'localhost') {
+					$urlParts['path'] = '/'.$urlParts['host'].'/'.$urlParts['path'];
+					unset($urlParts['host']);
+				}
+				$urlParts['path'] = strtoupper($urlParts['scheme']).':'.$urlParts['path'];
+				
+				//autoset scheme (file:// by default)
+				if (!($flags & self::PARSE_URL_NO_AUTOSET_SCHEME)) {
+					$urlParts['scheme'] = 'file';
+				}
+				else {
+					unset($urlParts['scheme']);
+				}
+			}
+			//misunderstood host? (Windows drive letter)
+			if (isset($urlParts['host']) && preg_match('/^[a-z]{1}$/i', $urlParts['host'])) {				
+				if (preg_match('/^([a-z]{1}):/i', $urlParts['path']) === 0) {
+					$urlParts['path'] = strtoupper($urlParts['host']).':'.$urlParts['path'];
+					unset($urlParts['host']);
+				}
+				//autoset scheme (file:// by default)
+				if (!($flags & self::PARSE_URL_NO_AUTOSET_SCHEME)) {
+					$urlParts['scheme'] = 'file';
+				}
+			}
+			//windows absolute path?
+			if (preg_match('/^\/([a-z]{1})(:\/.*)$/i', $urlParts['path'], $matches)) {
+				$urlParts['path'] = strtoupper($matches[1]).$matches[2];
+			}
+		}
+		//autocomplete and unify result path
+		if (isset($urlParts['path']) && $urlParts['path'] != '') {
+			$urlParts['path'] = self::unifyPath($urlParts['path']);
+		}
+		else {
+			$urlParts['path'] = '/';
+		}
+		
+		if (!($flags & self::PARSE_URL_DONTRESOLVE)) {
+			//relative path? (to PHP's current dir)
+			if (preg_match('/^\.\//', $urlParts['path'])) {
+				$urlParts['path'] = self::realpath($urlParts['path'], true);
+			}
+			//relative path?
+			elseif (preg_match('/\.{2}\//', $urlParts['path'])) {
+				$urlParts['path'] = self::realpath($urlParts['path'], $isWindows == true);
+			}
+		}
+		
+		//root path under Windows?
+		if ($isWindows && $urlParts['scheme'] == 'file' && $urlParts['path'] == '/') {
+			$urlParts['path'] = 'C:';				//FIXME: ugly hardcoding?
+		}
+		
+		//scheme and host to lowercase
+		if (isset($urlParts['scheme'])) {
+			$urlParts['scheme'] = strtolower($urlParts['scheme']);
+		}
+		if (isset($urlParts['host'])) {
+			$urlParts['host']= strtolower($urlParts['host']);
+		}
+		
+		//consider fragment (scheme://path#fragment) inside or outside path?
+		if ($flags & self::PARSE_URL_FRAGMENT2PATH
+			|| !($flags & self::PARSE_URL_KEEPFRAGMENT) && isset($urlParts['fragment']) && (in_array($urlParts['scheme'], self::$PARSE_URL_FRAGMENT2PATH_PROTOCOLS))) {
+			$urlParts['path'] .= '#'.$urlParts['fragment'];
+			unset($urlParts['fragment']);
+		}
+		
+		return $urlParts;
+	}
+	
+	const GLOB_NORMAL = 0;
+	const GLOB_ONLY_DIR = 1;				//@see GLOB_ONLYDIR in PHP manual
+	const GLOB_DIR_IGNORE_PATTERN = 2;
+	const GLOB_DIR_FIRST = 4;
+	const GLOB_RETURN_SIMPLE_PATH = 8;
+	const GLOB_CASEINSENSITIVE = 16;
+	const GLOB_FORCE_SCANDIR = 32;
+	
+	
+	/**
+	 * Finds pathnames matching a pattern
+	 * 
+	 * @see glob() in PHP manual
+	 * @param string $path
+	 * @param string $pattern
+	 * @param int $flags
+	 * 				GLOB_ONLY_DIR: Set it to retrieve directories only.
+	 * 				GLOB_DIR_IGNORE_PATTERN: Set it to apply given $pattern on files only, and retrieve all directories.
+	 * 				GLOB_DIR_FIRST: Set it to force placing directories first in the returned list.
+	 * 				GLOB_RETURN_SIMPLE_PATH: Set it to force returning a simple path (from the root) instead of a URL.
+	 * 				GLOB_CASEINSENSITIVE: Set it to apply given $pattern in a case insensitive way.
+	 * 				GLOB_FORCE_SCANDIR: Set it to force direct use of scandir() instead of glob().
+	 * @return array(string)
+	 * Note: This function does not return hidden files (.*) under _NIX with default pattern (*)
+	 */
+	public static function glob($path, $pattern='*', $flags=self::GLOB_NORMAL) {
+		//eyeX('rawjs', array('js' => 'console.log("'.$path.': '.print_r($pattern,true).'")'));
+		
+		$pattern = str_replace('/', '', $pattern);
+		if ($flags & self::GLOB_CASEINSENSITIVE) {
+			$pattern = sql_regcase($pattern);
+		}
+		$return = array();
+		$globFlags = ($flags & self::GLOB_ONLY_DIR)? GLOB_ONLYDIR : 0;
+		$globPath = self::getPhpLocalHackPath(strtr($path, array('[' => '\[', ']' => '\]')));
+		
+		//first of all, let's try with the normal glob() function (works only on localhost, but faster)
+		if (!($flags & self::GLOB_FORCE_SCANDIR)									//FORCE_SCANDIR flag must be off
+				&& ($allFiles = glob($globPath.'/'.$pattern, $globFlags))) {		//_and_ glob() must succeed (an empty array may mean that glob() failed)
+			$onlyDirs = array();
+			if ($flags & self::GLOB_DIR_IGNORE_PATTERN) {
+				$onlyDirs = glob($globPath.'/'.'*', GLOB_ONLYDIR);
+			}
+			else {
+				$onlyDirs = glob($globPath.'/'.$pattern, GLOB_ONLYDIR);
+			}
+			natcasesort($onlyDirs);
+			$onlyFiles = array_diff($allFiles, $onlyDirs);
+			$sortedFiles = array_merge($onlyDirs, $onlyFiles);	//dirs are placed first (alphab. sorted), then files (alphab. sorted)
+			
+			if (! ($flags & self::GLOB_DIR_FIRST)) {
+				natcasesort($sortedFiles);
+			}
+			
+			$scheme = '';
+			if (!($flags & self::GLOB_RETURN_SIMPLE_PATH)) {
+				//retrieve the original scheme
+				$urlParts = self::parse_url($path, self::OS_DETECT | self::PARSE_URL_NO_AUTOSET_SCHEME);
+				if (isset($urlParts['scheme'])) {
+					$scheme = $urlParts['scheme'].'://';
+				}
+			}
+			
+			foreach($sortedFiles as $filepath) {
+				$return[] = $scheme.$filepath;
+			}
+		}
+		//glob() failed (out of filesystem), let's try with scandir()
+		else {
+			$files = @scandir($path);
+			if ($files === false) {
+				throw new Exception('AdvancedPathLib::glob(): Unable to list files in directory "'.$path.'"');
+			}
+			
+			$files_tmp = array();
+			$dirs_tmp = array();
+			foreach($files as $filepath) {
+				if ($filepath != '.' && $filepath != '..') {
+					$fileNameMatches = self::fnmatch($pattern, $filepath);
+					if (is_dir($path.'/'.$filepath)) {
+						if ($fileNameMatches || $flags & self::GLOB_DIR_IGNORE_PATTERN) {
+							$dirs_tmp[] = $path.'/'.$filepath;
+						}
+					}
+					else {
+						if (!($flags & self::GLOB_ONLY_DIR) && $fileNameMatches) {
+							$files_tmp[] = $path.'/'.$filepath;
+						}
+					}
+				}
+			}			
+			$return = array_merge($dirs_tmp, $files_tmp);
+			if (! ($flags & self::GLOB_DIR_FIRST)) {
+				natcasesort($return);
+				$return = array_values($return);
+			}
+		}
+		return $return;
+	}
+	
+	public static function dirname($path) {
+		return self::unifyPath(dirname($path));
+	}
+	
+	public static function getExactURL($path) {
+		return self::buildURL(self::parse_url($path));
+	}
+	
+	/**
+	 * PHP path hack for local filesystem
+	 * @see http://bugs.php.net/45228
+	 * 
+	 * Windows: PHP library does not work well with *full* URL paths for local filesystem (like
+	 *          "file://C:/myDir", or "file://localhost/C:/myDir"), so this function returns PHP
+	 *          libraries compatible paths: "C:/myDir".
+	 * _NIX: PHP library does not work well with full URL paths containing hostname for local
+	 *       filesystem (like "file://localhost/home/john/myFile.ext"), so here the function
+	 *       returns "/home/john/myFile.ext".
+	 */
+	public static function getPhpLocalHackPath($path) {
+		$urlParts = self::parse_url($path);
+		if ($urlParts['scheme'] == 'file') {
+			if (self::checkCurrentOS('Win')) {
+				if (preg_match('/\/?([a-z]{1}:.*)/i', $urlParts['path'], $matches)) {
+					return $matches[1];
+				}
+			}
+			else {
+				return $urlParts['path'];
+			}
+		}
+		return $path;
+	}
+}
+?>

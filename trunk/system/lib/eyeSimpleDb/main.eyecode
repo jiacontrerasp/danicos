@@ -1,0 +1,94 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU General Public License Version 3 (GPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/gpl.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+*/
+
+/**
+ * Example 
+ * $params = array('host'=>'127.0.0.1','login'=>'test','password'=>'test','dbname'=>'test');
+	$db = reqLib('eyeSimpleDb','newDb',$params);
+	if(!$db){
+		$error = errorCodes('getErrorCode');
+		if($error == DB_NO_DRIVER){
+			$GLOBALS['eyeString_TxtA2']->setText('No Driver disponible en eyeOS');		
+		}elseif($error == DB_NO_SUPPORT){
+			$GLOBALS['eyeString_TxtA2']->setText('No Driver disponible en php');
+		}
+	}		
+	$query = 'SELECT * FROM news where title = ?';
+	$params = array('query'=>$query,'values'=>array('\'foo\''));
+	$query = reqLib('eyeSimpleDb','parseQuery',$params);
+	
+	$result = $db->query(array('query'=>$query,'type'=>'select'));
+ *
+ */
+//defines for default options
+define('DB_DEFAULT_TYPE','mysql');
+define('DRIVER_FOLDER','db_drivers');
+
+//Defines, for all db drivers
+define('DB_NO_SUPPORT',10000);
+define('DB_NO_CONNECT',10001);
+define('DB_NO_SELECTDB',10002);
+define('DB_NO_QUERY',10003);
+
+define('DB_NO_DRIVER',10004);
+
+/* 
+ * Public function for get the object
+*/
+
+function lib_eyeSimpleDb_getDb($params){
+	//If other type is defined set it
+	if(!isset($params['type'])){
+		$dbType = DB_DEFAULT_TYPE;
+	}else{
+		$dbType = basename($params['type']);//it is needed? 
+	}
+	
+	//Including the driver
+	$driverPath = EYE_ROOT.'/'.SYSTEM_DIR.'/'.LIB_DIR.'/eyeSimpleDb/'.DRIVER_FOLDER.'/'.$dbType.'_driver'.EYE_CODE_EXTENSION;
+	if(!is_readable($driverPath)){
+		errorCodes('setErrorCode',array(DB_NO_DRIVER));
+		return false;
+	}
+	include_once($driverPath);
+	return call_user_func(array($dbType.'Driver','getObject'),$params);
+}
+
+function lib_eyeSimpleDb_newDb($params){
+	return lib_eyeSimpleDb_newDb($params);
+}
+
+interface dbDriver{
+	//Open the descriptor for the source of the connection for example
+	//In mysql open a connection
+	public function connect($params);
+	//Select the database/file where the querys will be executed
+	public function selectDb($params);
+	//Execute the query, return true or false.
+	public function query($params);
+	//Empty the result attribute, this is very useful if the result have a big size
+	public function freeResult();
+	//Close the connection with the database.
+	public function close();
+}
+?>

@@ -1,0 +1,198 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+define('FSI_MODULES_PATH', EYE_ROOT.'/'.SYSTEM_DIR.'/'.SERVICE_DIR.'/vfs/file/modules');
+define('FSI_FILEMODULES_DIR', '/files');
+define('FSI_VPMODULES_DIR', '/virtualpaths');
+define('FSI_FILEMODULES_PATH', FSI_MODULES_PATH.FSI_FILEMODULES_DIR);
+define('FSI_VPMODULES_PATH', FSI_MODULES_PATH.FSI_VPMODULES_DIR);
+define('FSI_MODULES_EXTENSION', '.module'.EYE_CODE_EXTENSION);
+define('FSI_MODULES_CLASS_SUFFIX', '_FSIModule');
+
+require_once('lib/AdvancedPathLib'.EYE_CODE_EXTENSION);
+require_once('lib/EyeOSMountPointLib'.EYE_CODE_EXTENSION);
+require_once('AbstractFile'.EYE_CODE_EXTENSION);
+require_once('FSIModule'.EYE_CODE_EXTENSION);
+
+// This function may be moved to some more general place in the future,
+// to load additional modules (out of the FSI)
+function autoLoadClass($className) {
+	return FSIService::autoLoadClass($className);
+}
+ini_set('unserialize_callback_func', 'autoLoadClass');
+
+class FSIService {
+	
+	private static $instance = null;
+	
+	private $virtualPathsModules = null;
+	private $filesModules = null;
+	
+	private function __construct() {}
+	
+	/**
+	 *
+	 * @return boolean TRUE if the class definition has been successfully loaded, FALSE otherwise
+	 */
+	public static function autoLoadClass($className) {
+		$modules = self::getModules();
+		foreach($modules as $module) {
+			$success = $module->autoLoadClass($className);
+			if ($success) {
+				return $success;
+			}
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 *
+	 * @return FSIService
+	 */
+	public static function getInstance() {
+		if (is_null(self::$instance)) {
+			self::$instance = new FSIService();
+		}
+		return self::$instance;
+	}
+	
+	/**
+	 * Attempts to create a file object.
+	 *
+	 * @param string $path
+	 * @param array $params
+	 * @return AbstractFile An object if the file can be created, or NULL otherwise.
+	 */
+	public function createFile($path, $params=null) {
+		try {
+			$urlParts = AdvancedPathLib::parse_url($path);
+			return $this->createFileFromUrlParts($urlParts, $params);
+		}
+		 catch(Exception $e) {
+		 	eyeX('rawjs', array('js' => 'console.log("'.print_r($e->getMessage(),true).'")'));
+		 }
+	}
+	
+	/**
+	 * Attempts to create a file object.
+	 *
+	 * @param array $urlParts
+	 * @param array $params
+	 * @return AbstractFile An object if the file can be created, or NULL otherwise.
+	 */
+	public function createFileFromUrlParts($urlParts, $params=null) {
+		$vpModules = self::getVirtualPathsModules();
+		foreach($vpModules as $module) {
+			$file = $module->createFileFromUrlParts($urlParts, $params);
+			if (!is_null($file)) {
+				return $file;
+			}
+		}
+		$fileModules = self::getFilesModules();
+		foreach($fileModules as $module) {
+			$file = $module->createFileFromUrlParts($urlParts, $params);
+			if (!is_null($file)) {
+				return $file;
+			}
+		}
+		return null;
+	}
+	
+	/**
+	 *
+	 * @param string/AbstractFile $pathOrFile
+	 * @param array $params
+	 * @return string
+	 */
+	public function getVirtualPath($pathOrFile, $params=null) {
+		if ($pathOrFile instanceof AbstractFile) {
+			$urlParts = AdvancedPathLib::parse_url($pathOrFile->getPath());
+		}
+		else {
+			$urlParts = AdvancedPathLib::parse_url($pathOrFile);
+		}
+		return $this->getVirtualPathFromUrlParts($urlParts, $params);
+	}
+	
+	/**
+	 * 
+	 *
+	 * @param array $urlParts
+	 * @param array $params
+	 * @return string
+	 */
+	public function getVirtualPathFromUrlParts($urlParts, $params=null) {
+		$modules = self::getVirtualPathsModules();
+		foreach($modules as $module) {
+			$virtualPath = $module->getVirtualPathFromUrlParts($urlParts, $params);
+			if (!is_null($virtualPath)) {
+				return $virtualPath;
+			}
+		}
+		return null;
+	}
+	
+	/**
+	 *
+	 * @param string $path
+	 * @return array(FSIModule)
+	 */
+	private function getVirtualPathsModules() {
+		if (is_null($this->virtualPathsModules)) {
+			$this->virtualPathsModules = self::getModules(FSI_VPMODULES_DIR);
+		}
+		return $this->virtualPathsModules;
+	}
+	
+	/**
+	 *
+	 * @param string $path
+	 * @return array(FSIModule)
+	 */
+	private function getFilesModules() {
+		if (is_null($this->filesModules)) {
+			$this->filesModules = self::getModules(FSI_FILEMODULES_DIR);
+		}
+		return $this->filesModules;
+	}
+	
+	/**
+	 *
+	 * @param string $path
+	 * @return array(FSIModule)
+	 */
+	private final static function getModules($path='/') {
+		return FSIModule::getModules($path);
+	}
+}
+
+function service_fsi_createFile($path, $params=null) {
+	return FSIService::getInstance()->createFile($path, $params);
+}
+
+function service_fsi_getVirtualPath($path, $params=null) {
+	return FSIService::getInstance()->getVirtualPath($path, $params);
+}
+
+?>

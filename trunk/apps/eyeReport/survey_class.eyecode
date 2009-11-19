@@ -1,0 +1,700 @@
+<?php
+
+/**
+ * #########################################################################################
+ * SURVEY class
+ * #########################################################################################
+ * @author Nanawel (nanawel@eyeos.org)
+ */
+class Survey {
+	public $id;
+	public $title;
+	public $description;
+	public $nbPages;
+	public $filename;
+	public $number;
+	public $resultsStorageData;
+	public $displayOnceOnly;
+	
+	protected $anonymous;
+	protected $pages;
+	
+	public function __construct($xml, $filename, $number) {
+		if(is_array($xml)) {
+			$this->filename = $filename;
+			$this->number = $number;
+			
+			$this->id = $xml['id'][0];
+			$this->title = $xml['title'][0];
+			$this->description = $xml['description'][0];
+			$this->anonymous = ($xml['anonymous'][0] == 'false')? false : true;
+			$this->displayOnceOnly = ($xml['displayOnceOnly'][0] == 'false')? false : true;
+			
+			$this->resultsStorageData = $xml['resultsStorage'][0];
+			
+			$this->pages = array();
+			$this->nbPages = count($xml['page']);
+			foreach($xml['page'] as $pageNumber => $pageData) {
+				$this->pages[$pageNumber] = new Survey_Page($pageData, $pageNumber, $this->nbPages);
+			}
+		}
+		else {
+			$this->title = '## '.i18n('translate', array('Error processing specified survey')).' ##';
+		}
+	}
+	
+	public function isAnonymous() {
+		return $this->anonymous;
+	}
+	
+	/**
+	 *
+	 * @return array(Survey_Page)
+	 */
+	public function getPages() {
+		return $this->pages;
+	}
+	
+	/**
+	 *
+	 * @return Survey_Page
+	 */
+	public function getPage($pageNumber) {
+		return $this->pages[$pageNumber];
+	}
+
+	public function getUserData() {
+		$userData = array();
+		foreach($this->pages as $page) {
+			$pageId = ($page->id)? $page->id : uniqid();
+			$userData[$pageId] = $page->getUserData();
+		}
+		return $userData;
+	}
+	
+	public function saveAllResults() {
+		global $currentUser;
+		
+		$username = ($this->anonymous)? false : $currentUser;
+		$storageMethod = Survey_StorageMethod::createStorageMethod($this->resultsStorageData);
+		$storageMethod->saveResults($this->getUserData(), $username);
+	}
+}
+
+abstract class Survey_StorageMethod {
+	protected $params;
+	
+	/**
+	 *
+	 * @param array $data
+	 * @return Survey_StorageMethod
+	 */
+	public static function createStorageMethod(array $data) {
+		if (class_exists('Survey_StorageMethod_'.$data['method'][0])) {
+			$className = 'Survey_StorageMethod_'.$data['method'][0]; 
+			return new $className($data['params'][0]);
+		}
+		else {
+			return false;
+		}
+	}
+	
+	/**
+	 *
+	 * @param array $data
+	 */
+	public abstract function saveResults(array $results, $username=false);
+}
+
+class Survey_StorageMethod_Xml extends Survey_StorageMethod {
+	public function __construct(array $params) {
+		$this->params = $params;
+	}
+	
+	public function saveResults(array $results, $username=false) {
+		$filename = $this->params['filename'][0];
+		
+		$resultsXml = array();
+		if ($username) {
+			$resultsXml['user'] = array($username);
+		}
+		$resultsXml['question'] = array();
+		foreach ($results as $pageId => $page) {
+			foreach($page as $questionId => $answer) {
+				$resultsXml['question'][] = array(
+					'id' => array($questionId),
+					'answer' => array($answer)
+				);
+			}
+		}
+		
+		//fetching already saved results (shared on the server)
+		$existingXml = getConfig('eyeReport', $filename);
+		if (!is_array($existingXml))
+			$existingXml = array('eyeReportResults');
+		if (!is_array($existingXml['eyeReportResults']))
+			$existingXml['eyeReportResults'] = array();
+		if (!is_array($existingXml['eyeReportResults'][0]))
+			$existingXml['eyeReportResults'][0] = array();
+		if (!is_array($existingXml['eyeReportResults'][0]['result']))
+			$existingXml['eyeReportResults'][0]['result'] = array();
+		$existingXml['eyeReportResults'][0]['result'][] = $resultsXml;
+		
+		return setConfig('eyeReport', $filename, $existingXml);
+	}
+}
+
+
+/**
+ * #########################################################################################
+ * SURVEY_PAGE class
+ * #########################################################################################
+ * @author Nanawel (nanawel@eyeos.org)
+ */
+class Survey_Page {
+	public $id;
+	public $number;
+	public $totalNumber;
+	public $title;
+	public $description;
+	
+	protected $questions;
+	
+	public function __construct($data, $number, $totalNumber) {
+		$this->number = $number;
+		$this->totalNumber = $totalNumber;
+		if(is_array($data)) {
+			$this->id = $data['id'][0];
+			$this->title = $data['title'][0];
+			$this->description = $data['description'][0];
+			
+			$this->questions = array();
+			foreach($data['question'] as $questionNumber => $questionData) {
+				$this->questions[$questionNumber] = new Survey_Question($questionData, $questionNumber);
+			}
+		}
+		else {
+			$this->title = '## '.i18n('translate', array('Invalid page data')).' ##';
+		}
+	}
+	
+	public function getQuestions() {
+		return $this->questions;
+	}
+	
+	public function getQuestion($questionNumber) {
+		return $this->questions[$questionNumber];
+	}
+	
+	/**
+	 * 
+	 * @return Container (eyeOS widget)
+	 */
+	public function getContainer() {
+		//PAGE CONTAINER
+		$pageContainer = new Container(array(
+			'name' => 'page_CTN',
+			'father' => 'eyeReport_WND_Content',
+			'x' => 30,
+			'y' => 100,
+			'width' => 580,
+			'height' => 340
+		));
+		$pageContainer->show();
+		
+		//PAGE TITLE
+		$pageTitle = new Label(array(
+			'name' => 'pageTitle_LBL',
+			'father' => 'page_CTN',
+			'x' => 20,
+			'y' => 0,
+			'width' => 570,
+			'text' => $this->title
+		));
+		$pageTitle->show();
+		$pageTitle->setCss(array(
+			'font-size' => '14px',
+			'font-weight' => 'bold',
+			'color' => '#004488'
+		));
+		
+		//PAGE NUMBER
+		//(displayed only if there is more than one page)
+		if ($this->totalNumber > 1) {
+			$pageTitle = new Label(array(
+				'name' => 'pageNumber_LBL',
+				'father' => 'page_CTN',
+				'x' => 510,
+				'y' => 0,
+				'text' => 'Page %s/%s',
+				'tokens' => array($this->number+1, $this->totalNumber)
+			));
+			$pageTitle->show();
+			$pageTitle->setCss(array(
+				'font-size' => '12px',
+				'font-weight' => 'bold',
+				'color' => '#004488'
+			));
+		}
+		
+		//NEXT/SEND BUTTON
+		$buttonCaption = ($this->number < $this->totalNumber-1)? 'Next >>' : 'Send!';
+		$nextButton = new Button(array(
+			'name' => 'pageButton_BTN',
+			'father' => 'page_CTN',
+			'x' => 490,
+			'y' => 320,
+			'width' => 80,
+			'caption' => $buttonCaption
+		));
+		
+		//QUESTIONS CONTAINERS
+		foreach($this->questions as $questionNumber => $question) {
+			$questionContainer = $question->getContainer();
+			$questionContainer->setX(5);
+			$questionContainer->setY(30 + $questionNumber *100);
+			$questionContainer->show();
+			$question->registerAsFriend($nextButton);
+		}
+		$nextButton->show();
+		
+		return $pageContainer;
+	}
+	
+	/**
+	 *
+	 * @return boolean FALSE if an error occured, TRUE otherwise
+	 */
+	public function processAnswers() {
+		$return = true;
+		foreach($this->questions as $question) {
+			$return &= $question->processAnswer();
+		}
+		return $return;
+	}
+	
+	public function getUserData() {
+		$userData = array();
+		foreach($this->questions as $question) {
+			$questionId = ($question->id)? $question->id : uniqid();
+			$userData[$questionId] = $question->getUserData();
+		}
+		return $userData;
+	}
+}
+
+
+/**
+ * #########################################################################################
+ * QUESTION class
+ * #########################################################################################
+ * @author Nanawel (nanawel@eyeos.org)
+ */
+class Survey_Question {
+	public $id;
+	public $number;
+	public $text;
+	
+	protected $answer;
+	
+	public function __construct(array $data, $number) {
+		if(is_array($data)) {
+			$this->id = $data['id'][0];
+			$this->number = $number;
+			$this->text = $data['text'][0];
+			
+			$this->answer = Survey_Answer::createAnswer($data['answer'][0], $this);
+			
+			if ($this->answer === false) {
+				$this->text = '## '.i18n('translate', array('Invalid answer type')).' ##';
+			}
+		}
+	}
+	
+	/**
+	 * 
+	 * @return Container (eyeOS widget)
+	 */
+	public function getContainer() {
+		//QUESTION CONTAINER
+		$questionContainer = new Container(array(
+			'name' => 'question_'.$this->number.'_CTN',
+			'father' => 'page_CTN',
+			'x' => 5,
+			'y' => 30,
+			'width' => 570
+		));
+		$questionContainer->show();
+		
+		//QUESTION BULLET
+		$bullet = new Imagebox(array(
+			'name' => 'question_'.$this->number.'_IMG',
+			'father' => 'question_'.$this->number.'_CTN',
+			'x' => 0,
+			'y' => 0,
+			'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeReport/gfx/bullet.png'
+		));
+		$bullet->show();
+		
+		//QUESTION TEXT
+		$questionText = new Label(array(
+			'name' => 'question_'.$this->number.'_LBL',
+			'father' => 'question_'.$this->number.'_CTN',
+			'x' => 28,
+			'y' => 0,
+			'width' => 570,
+			'text' => $this->text
+		));
+		$questionText->show();
+		$questionText->setCss(array(
+			'font-size' => '11px',
+			'color' => '#3377AA'
+		));
+		
+		//ANSWER CONTAINER
+		if ($this->answer) {
+			$answerContainer = $this->answer->getContainer();
+			$answerContainer->setX(28);
+			$answerContainer->setY(24);
+		}
+		
+		return $questionContainer;
+	}
+	
+	public function registerAsFriend($widget) {
+		if ($this->answer)
+			$this->answer->registerAsFriend($widget);
+	}
+	
+	public function processAnswer() {
+		if ($this->answer)
+			return $this->answer->processUserData();
+		return false;
+	}
+	
+	public function getUserData() {
+		if ($this->answer)
+			return $this->answer->getUserData();
+		return false;
+	}
+}
+
+
+/**
+ * #########################################################################################
+ * SURVEY_ANSWER class
+ * #########################################################################################
+ * @author Nanawel (nanawel@eyeos.org)
+ */
+abstract class Survey_Answer {
+	protected $component;
+	protected $params;
+	protected $parentQuestion;
+	protected $userData;
+	
+	/**
+	 *
+	 * @param array $data
+	 * @param Survey_Question $parentQuestion
+	 * @return Survey_Answer
+	 */
+	public static function createAnswer(array $data, Survey_Question $parentQuestion) {
+		if (class_exists('Survey_Answer_'.$data['type'][0])) {
+			$className = 'Survey_Answer_'.$data['type'][0]; 
+			return new $className($data['params'][0], $parentQuestion);
+		}
+		else {
+			return false;
+		}
+	}
+	
+	public abstract function getContainer();
+	public abstract function processUserData();
+	public abstract function registerAsFriend($widget);
+	
+	public function getUserData() {
+		return $this->userData;
+	}
+}
+
+/**
+ * #########################################################################################
+ * SURVEY_ANSWER_SIMPLETEXT class
+ * #########################################################################################
+ * @author Nanawel (nanawel@eyeos.org)
+ */
+class Survey_Answer_SimpleText extends Survey_Answer {
+	public function __construct($params, Survey_Question $parentQuestion) {
+		$this->params = $params;
+		$this->parentQuestion = $parentQuestion;
+	}
+	
+	public function getContainer() {
+		//ANSWER CONTAINER
+		$answerContainer = new Container(array(
+			'name' => 'answer_'.$this->parentQuestion->number.'_CTN',
+			'father' => 'question_'.$this->parentQuestion->number.'_CTN',
+			'x' => 28,
+			'y' => 24,
+			'width' => 570
+		));
+		$answerContainer->show();
+		
+		//TEXTAREA
+		$this->component = new Textarea(array(
+			'name' => 'answer_'.$this->parentQuestion->number,
+			'father' => 'answer_'.$this->parentQuestion->number.'_CTN',
+			'x' => 0,
+			'y' => 0,
+			'width' => 550,
+			'height' => 50
+		));
+		$this->component->show();
+		
+		if (is_array($this->params['text'])) {
+			$this->component->setText($this->params['text'][0]);
+			
+			global $myPid;
+			$this->component->addEvent('onfocus', 'if(document.getElementById("'.$myPid.'_answer_'.$this->parentQuestion->number.'").value=="'.$this->params['text'][0].'")document.getElementById("'.$myPid.'_answer_'.$this->parentQuestion->number.'").value=""');
+		}
+		
+		return $answerContainer;
+	}
+	
+	public function processUserData() {
+		if (is_object($GLOBALS['answer_'.$this->parentQuestion->number])) {
+			$this->userData = $GLOBALS['answer_'.$this->parentQuestion->number]->text;
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	
+	public function registerAsFriend($widget) {
+		$widget->addFriend($this->component);
+	}
+}
+
+/**
+ * #########################################################################################
+ * SURVEY_ANSWER_MULTIPLECHOICE class
+ * #########################################################################################
+ * @author Nanawel (nanawel@eyeos.org)
+ */
+class Survey_Answer_MultipleChoice extends Survey_Answer {
+	public function __construct($params, Survey_Question $parentQuestion) {
+		$this->params = $params;
+		$this->parentQuestion = $parentQuestion;
+	}
+	
+	public function getContainer() {
+		//ANSWER CONTAINER
+		$answerContainer = new Container(array(
+			'name' => 'answer_'.$this->parentQuestion->number.'_CTN',
+			'father' => 'question_'.$this->parentQuestion->number.'_CTN',
+			'x' => 28,
+			'y' => 24,
+			'width' => 570
+		));
+		$answerContainer->show();
+		
+		//CHECKBOXES
+		$x = 0;
+		$y = 0;
+		$this->component = array();
+		foreach($this->params['choice'] as $i => $choice) {
+			$this->component[$i] = new Checkbox(array(
+				'name' => 'answer_'.$this->parentQuestion->number.'_'.$i,
+				'father' => 'answer_'.$this->parentQuestion->number.'_CTN',
+				'x' => $x,
+				'y' => $y,
+				'text' => $choice['text'][0]
+			));
+			$this->component[$i]->show(0);
+			
+			if (($i+1) % 3 == 0) {
+				$y = 0;
+				$x += 170;
+			}
+			else {
+				$y += 20;
+			}
+		}
+		
+		return $answerContainer;
+	}
+	
+	public function processUserData() {
+		$this->userData = '';
+		foreach($this->params['choice'] as $i => $choice) {
+			if (is_object($GLOBALS['answer_'.$this->parentQuestion->number.'_'.$i])) {
+				if ($GLOBALS['answer_'.$this->parentQuestion->number.'_'.$i]->checked)
+					$this->userData .= ($this->userData)? '|'.$choice['text'][0] : $choice['text'][0];
+			}
+			else {
+				return false;
+			}
+		}
+		return true;
+	}
+	
+	public function registerAsFriend($widget) {
+		foreach($this->component as $checkbox) {
+			$widget->addFriend($checkbox);
+		}
+	}
+}
+
+/**
+ * #########################################################################################
+ * SURVEY_ANSWER_SELECT class
+ * #########################################################################################
+ * @author Nanawel (nanawel@eyeos.org)
+ */
+class Survey_Answer_Select extends Survey_Answer {
+	public function __construct($params, Survey_Question $parentQuestion) {
+		$this->params = $params;
+		$this->parentQuestion = $parentQuestion;
+	}
+	
+	public function getContainer() {
+		//ANSWER CONTAINER
+		$answerContainer = new Container(array(
+			'name' => 'answer_'.$this->parentQuestion->number.'_CTN',
+			'father' => 'question_'.$this->parentQuestion->number.'_CTN',
+			'x' => 28,
+			'y' => 24,
+			'width' => 570
+		));
+		$answerContainer->show();
+		
+		//SELECT
+		$this->component = new Select(array(
+			'name' => 'answer_'.$this->parentQuestion->number,
+			'father' => 'answer_'.$this->parentQuestion->number.'_CTN',
+			'x' => 0,
+			'y' => 0,
+			'width' => 150
+		));
+		$this->component->show(0);
+		$this->component->setCss(array(
+			'background-color' => 'white',
+			'border' => '1px solid #bcbcbc',
+			'padding-left' => '2px',
+			'font-size' => '11px'
+		));
+		foreach($this->params['choice'] as $choice) {
+			$text = $choice['text'][0];
+			$value = ($choice['value'][0])? $choice['value'][0] : $choice['text'][0];
+			
+			if ($choice['selected'])
+				$this->component->addOption($text, $value, 1);
+			else
+				$this->component->addOption($text, $value, 0);
+		}
+		
+		return $answerContainer;
+	}
+	
+	public function processUserData() {
+		if (is_object($GLOBALS['answer_'.$this->parentQuestion->number])) {
+			$this->userData = $GLOBALS['answer_'.$this->parentQuestion->number]->selected;
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	
+	public function registerAsFriend($widget) {
+		$widget->addFriend($this->component);
+	}
+}
+
+/**
+ * #########################################################################################
+ * SURVEY_ANSWER_SELECTSTARS class
+ * #########################################################################################
+ * @author Nanawel (nanawel@eyeos.org)
+ */
+class Survey_Answer_StarsRate extends Survey_Answer {
+	public function __construct($params, Survey_Question $parentQuestion) {
+		$this->params = $params;
+		$this->parentQuestion = $parentQuestion;
+		eyeX('loadScript', array('url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeReport/js/StarsRate.js'));
+	}
+	
+	public function getContainer() {
+		global $myPid;
+		
+		//ANSWER CONTAINER
+		$answerContainer = new Container(array(
+			'name' => 'answer_'.$this->parentQuestion->number.'_CTN',
+			'father' => 'question_'.$this->parentQuestion->number.'_CTN',
+			'x' => 28,
+			'y' => 24,
+			'width' => 570
+		));
+		$answerContainer->show();
+		
+		$numberOfStars = 3;
+		if (is_array($this->params['number']))
+			$numberOfStars = intval($this->params['number'][0]);
+		$numberOfStars = ($numberOfStars > 1 && $numberOfStars <= 12)? $numberOfStars : 3; 
+		
+		$default = $default = ceil($numberOfStars / 2);
+		if (is_array($this->params['default']))
+			$default = intval($this->params['default'][0]);
+		if ($default < 1 || $default > $numberOfStars) {
+			$default = ceil($numberOfStars / 2);
+		}
+		
+		//STARS
+		for($i = 0 ; $i < $numberOfStars ; $i++) {
+			$star = new Imagebox(array(
+				'name' => 'answer_'.$this->parentQuestion->number.'_'.$i.'_IMG',
+				'father' => 'answer_'.$this->parentQuestion->number.'_CTN',
+				'x' => $i * 25,
+				'y' => 0,
+				'url' => ($i < $default)? 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeReport/gfx/star_selected.png' : 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeReport/gfx/star_notselected.png'
+			));
+			$star->show();
+			$star->setCss(array('cursor' => 'pointer'));		
+			$star->addEvent('onmouseover', 'highlightStars("'.$myPid.'_answer_'.$this->parentQuestion->number.'",'.$i.','.$numberOfStars.');');
+			$star->addEvent('onmouseout', 'highlightStars("'.$myPid.'_answer_'.$this->parentQuestion->number.'",document.getElementById("'.$myPid.'_answer_'.$this->parentQuestion->number.'_HID").value,'.$numberOfStars.');');
+			$star->addEvent('onclick', 'document.getElementById("'.$myPid.'_answer_'.$this->parentQuestion->number.'_HID").value='.$i.';');
+		}
+		
+		//HIDDEN ELEMENT
+		$this->component = new Hidden(array(
+			'name' => 'answer_'.$this->parentQuestion->number.'_HID',
+			'father' => 'eyeReport_WND_Content',
+			'text' => $default-1
+		));
+		$this->component->show();
+		
+		return $answerContainer;
+	}
+	
+	public function processUserData() {
+		if (is_object($GLOBALS['answer_'.$this->parentQuestion->number.'_HID'])) {
+			$rate = intval($GLOBALS['answer_'.$this->parentQuestion->number.'_HID']->text);
+			$rate += 1;
+			$this->userData = '';
+			for($i = 0 ; $i < $rate ; $i++) {
+				$this->userData .= '*';
+			}
+			$this->userData .= ' ('.$rate.')';
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+	
+	public function registerAsFriend($widget) {
+		$widget->addFriend($this->component);
+	}
+}
+?>

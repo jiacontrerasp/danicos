@@ -1,0 +1,762 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+define('FTPFILE_CONNECTION_TIMEOUT', 90);
+define('FTPFILE_ANONYMOUS_USERNAME', 'anonymous');
+define('FTPFILE_ANONYMOUS_PASSWORD', 'ftp@eyeos.org');
+
+AdvancedPathLib::parse_url_registerFragment2PathProtocol(array('ftp', 'ftps'));
+
+/**
+ * This class extends the GenericFile class to handle remote FTP files management.
+ * 
+ * @author Nanawel
+ * @version 0.2, 15-Dec-2008
+ */
+class FTPFile extends GenericFile  {	
+	/**
+	 * Connections pool for current HTTP request.
+	 * @var array(user:pass@IP_addr:port => resource)
+	 */
+	static $connectedHosts = array();
+
+	/**
+	 * @param $path The path to the file (MUST BE A VALID URL)
+	 *              - ftp://ftp.eyeos.org/
+	 *              - ftp://usertest@ftp.eyeos.org:21/test/myFile.txt
+	 *              - ...
+	 * @param mixed $params Initial stats of the file (@see protected var GenericFile::$statsCache)
+	 */
+	public function __construct($path='', $params=null) {
+		parent::__construct($path, $params);
+		if (is_array($params)) {
+			$this->statsCache['isDirectory'] = isset($params['isDirectory'])?  $params['isDirectory'] : null;
+			$this->statsCache['isFile'] = isset($params['isFile'])?  $params['isFile'] : null;
+			$this->statsCache['isLink'] = isset($params['isLink'])?  $params['isLink'] : null;
+			$this->statsCache['permissions'] = isset($params['permissions'])?  $params['permissions'] : null;
+			$this->statsCache['size'] = isset($params['size'])?  $params['size'] : null;
+			$this->statsCache['linkTarget'] = isset($params['linkTarget'])?  $params['linkTarget'] : null;
+		}
+	}
+	
+	//###############################################################################
+	//			PROTECTED METHODS
+	//###############################################################################
+	
+	/**
+	 * Destroys the connection matching the current file if any.
+	 * This method is used to shut down a connection made with ftp_connect() before
+	 * using a standard function (such as fopen) because this one will make a second
+	 * connection, which may be refused by the FTP server.
+	 */
+	protected function destroyConnection() {
+		$urlParts = $this->getURLComponents();
+		self::registerConnection(false, $urlParts['host'], $urlParts['port'], $urlParts['user'], $urlParts['pass']);
+	}
+	
+	/**
+	 *
+	 * @return boolean
+	 */
+	protected function fetchStats() {		
+		$urlParts = $this->getURLComponents();
+		if ($urlParts['path'] == '/') {
+			$this->statsCache['permissions'] = 'd---------';
+			$this->statsCache['isDirectory'] = true;
+			$this->statsCache['isFile'] = false;
+			$this->statsCache['isLink'] = false;
+			$this->statsCache['size'] = 0;
+			$this->statsCache['linkTarget'] = null;
+			return true;
+		}
+		
+		//fetching stats from parent folder's files list
+		$parentUrlParts = $this->getParentFile()->getURLComponents();
+		$res = $this->getConnection();
+		$parentFilesList = @ftp_rawlist($res, $parentUrlParts['path']);
+		
+		$fileInfo = false;
+		if ($parentFilesList) {
+			$thisName = $this->getName();
+			$parsedParentFilesList = self::parseRawList($parentFilesList, false);
+			foreach($parsedParentFilesList as $file) {
+				if ($file['name'] == $thisName) {
+					$fileInfo = $file;
+					break;
+				}
+			}
+		}
+		
+		//current file does not seem to exist
+		if (!$fileInfo) {
+			$this->statsCache['permissions'] = '----------';
+			$this->statsCache['isDirectory'] = false;
+			$this->statsCache['isFile'] = false;
+			$this->statsCache['isLink'] = false;
+			$this->statsCache['size'] = 0;
+			$this->statsCache['linkTarget'] = null;
+			return false;	//TODO: exception
+		}
+		
+		$this->statsCache['permissions'] = $fileInfo['type'].$fileInfo['perms'];
+		switch ($fileInfo['type']) {
+			case 'd':
+				$this->statsCache['isDirectory'] = true;
+				$this->statsCache['isFile'] = false;
+				$this->statsCache['isLink'] = false;
+				$this->statsCache['size'] = null;
+				$this->statsCache['linkTarget'] = null;
+				break;
+			case 'l':
+				$this->statsCache['isDirectory'] = false;
+				$this->statsCache['isFile'] = false;
+				$this->statsCache['isLink'] = true;
+				$this->statsCache['size'] = $fileInfo['size'];
+				$parsedLinkName = self::parseLinkName($this, $fileInfo[0]['name']);
+				if (!is_array($parsedLinkName)) {
+					throw new Exception('FTPFile->fetchStats(): Unable to fetch link target from link "'.$this->path.'"');
+				}
+				$this->statsCache['linkTarget'] = $parsedLinkName[2];
+				break;
+			default:
+				$this->statsCache['isDirectory'] = false;
+				$this->statsCache['isFile'] = true;
+				$this->statsCache['isLink'] = false;
+				$this->statsCache['size'] = $fileInfo['size'];
+				$this->statsCache['linkTarget'] = null;
+		}
+		return true;
+	}
+	
+	protected function getConnection($forceReconnect=false) {
+		$urlParts = $this->getURLComponents();
+		$ftpResource = self::isConnectionRegistered($urlParts['host'], $urlParts['port'], $urlParts['user'], $urlParts['pass']);
+		if ($ftpResource) {
+			if ($forceReconnect) {
+				ftp_close($ftpResource);
+			}
+			else {
+				return $ftpResource;
+			}
+		}
+		$host = $urlParts['host'];
+		$port = $urlParts['port']? $urlParts['port'] : 21;
+		if ($urlParts['scheme'] == 'ftps') {
+			if (!function_exists('ftp_ssl_connect')) {
+				throw new Exception('FTPFile->getConnection(): The FTPS protocol is not supported by the server ("'.$this->path.'")');
+			}
+			else {
+				$ftpResource = @ftp_ssl_connect($host, $port, FTPFILE_CONNECTION_TIMEOUT);
+			}
+		}
+		else {
+			$ftpResource = @ftp_connect($host, $port, FTPFILE_CONNECTION_TIMEOUT);
+		}
+		if ($ftpResource === false) {
+			throw new Exception('FTPFile->getConnection(): Unable to connect to host for file "'.$this->path.'"');
+		}
+		$username = $urlParts['user']? $urlParts['user'] : FTPFILE_ANONYMOUS_USERNAME;
+		$password = $urlParts['pass']? $urlParts['pass'] : FTPFILE_ANONYMOUS_PASSWORD;
+		if (@ftp_login($ftpResource, $username, $password) === false) {
+			throw new Exception('FTPFile->getConnection(): Unable to login to host for file "'.$this->path.'"');
+		}
+		if (@ftp_pasv($ftpResource, true) === false) {
+			//passive mode failed... and so?
+		}
+		self::registerConnection($ftpResource, $urlParts['host'], $urlParts['port'], $urlParts['user'], $urlParts['pass']);
+		return $ftpResource;
+	}
+	
+	//###############################################################################
+	//			GenericFile OVERLOADED METHODS
+	//###############################################################################
+	
+	/**
+	 * Note: This operation is not available for FTP files, so the returned value is always TRUE. 
+	 * @return boolean TRUE if the file can be read by the current user, FALSE otherwise
+	 */
+	public function canRead() {
+		return true;	//TODO: do it better?
+	}
+	
+	/**
+	 * Note: This operation is not available for FTP files, so the returned value is always TRUE. 
+	 * @return boolean TRUE if the file can be written by the current user, FALSE otherwise
+	 */
+	public function canWrite() {
+		return true;	//TODO: do it better?
+	}
+	
+	/**
+	 * Clear object's internal cache
+	 * (force next call to information getters to fetch *real* data)
+	 * @return void
+	 */
+	//public function clearStatsCache() {}
+	
+	/**
+	 * @return int A negative value if the current file should be placed before $file,
+	 * zero (0) if they are equals, a positive value otherwise
+	 */
+	//public function compareTo(AbstractFile $file, $foldersFirst=false) {}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully copied from $file, FALSE otherwise
+	 */
+	public function copyFrom(AbstractFile $file, $overwrite=true) {
+		$this->destroyConnection();
+		return parent::copyFrom($file, $overwrite);
+	}
+	
+	/**
+	 * @param boolean $overwrite Set to TRUE to try overwriting the file if it already exists
+	 * @return boolean TRUE if the file has been successfully created, FALSE otherwise
+	 */
+	public function createNewFile($overwrite=false) {
+		$context = null;
+		if ($overwrite) {
+			$opts = array('ftp' => array('overwrite' => true));
+			$context = stream_context_create($opts);
+		}
+		else {
+			$opts = array('ftp' => array('overwrite' => false));
+			$context = stream_context_create($opts);
+		}
+		$this->destroyConnection();
+		//eyeX('rawjs', array('js' => 'console.log("'.print_r('fopen('.$this->path.')',true).'")'));
+		$fp = @fopen($this->path, 'w', false, $context);
+		if ($fp === false) {
+			throw new Exception('FTPFile->createNewFile(): Unable to create file "'.$this->path.'", fopen() failed');
+		}
+		fclose($fp);
+		
+		//updating internal stats
+		$this->statsCache['isDirectory'] = false;
+		$this->statsCache['isFile'] = true;
+		$this->statsCache['isLink'] = false;
+		$this->statsCache['size'] = 0;
+		$this->statsCache['linkTarget'] = null;
+		
+		return true;
+	}
+	
+	/**
+	 * @param AbstractFile $target The target file the link will point to
+	 * @param boolean $overwrite
+	 * @return boolean TRUE if the link has been successfully created, FALSE otherwise
+	 * THIS METHOD IS NOT (YET?) AVAILABLE WITH FTP PROTOCOL.
+	 */
+	public function createNewLink(AbstractFile $target, $overwrite=false) {
+		throw new Exception('FTPFile->createNewLink(): Operation not supported "'.$this->path.'"');
+	}
+	
+	/**
+	 * @param boolean $recursive Try to delete folders and files recursively
+	 *                (Warning: can be _very_ long to perform on FTP servers)
+	 * @param boolean $onlyContents In the case of a directory, only delete the files it contains if TRUE
+	 * or the entire directory otherwise
+	 * @return boolean TRUE if the file has been successfully deleted, FALSE otherwise
+	 */
+	public function delete($recursive=false, $onlyContents=false) {
+		$success = true;
+		if ($this->isDirectory()) {
+			if ($recursive) {
+				foreach($this->listFiles() as $subFile) {
+					$success &= $subFile->delete(true, false);
+				}
+			}
+			if (!$onlyContents) {
+				$res = $this->getConnection();
+				if (@ftp_rmdir($res, $this->getPathFromRoot())) {
+					$success = true;
+					$this->statsCache['isDirectory'] = false;
+				}
+				else {
+					$success = false;
+				}
+			}
+			else {
+				$success &= true;
+			}
+		}
+		elseif ($this->isFile() || $this->isLink()) {
+			$res = $this->getConnection();
+			if (@ftp_delete($res, $this->getPathFromRoot())) {	
+				$success = true;
+				$this->statsCache['isFile'] = false;
+				$this->statsCache['isLink'] = false;
+			}
+			else {
+				$success = false;
+			}
+		}
+		return $success;
+	}
+	
+	/**
+	 * @return boolean TRUE if the file/folder exists, FALSE otherwise
+	 */
+	public function exists($forceCheck=false) {
+		if ($forceCheck) {
+			$this->statsCache['isDirectory'] = null;
+			$this->statsCache['isFile'] = null;
+			$this->statsCache['isLink'] = null;
+		}
+		return $this->isDirectory() || $this->isFile() || $this->isLink();
+	}
+	
+	/**
+	 * @return string
+	 */
+	public function getAbsolutePath() {
+		return AdvancedPathLib::buildURL($this->getURLComponents());
+	}
+	
+	/**
+	 * @return mixed The content of the file or FALSE if an error occured
+	 */
+	public function getContents() {
+		$this->destroyConnection();
+		return parent::getContents();
+	}
+	
+	/**
+	 * @return string The *real* extension of the physical file
+	 */
+	//public function getExtension() {}
+	
+	/**
+	 * @return AbstractFile The target file pointed by the link, or FALSE if an error occured
+	 */
+	public function getLinkTarget() {
+		if ($this->isLink()) {
+			if (is_null($this->statsCache['linkTarget'])) {
+				$this->fetchStats();
+			}
+			return new FTPFile($this->statsCache['linkTarget']);
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return string The *real* name of the physical file
+	 */
+	//public function getName() {}
+	
+	/**
+	 * @return string The path of the file's parent directory
+	 */
+	//public function getParentPath() {}
+	
+	/**
+	 * @return GenericFile The file corresponding to the file's parent directory
+	 */
+	//public function getParentFile() {}
+	
+	/**
+	 * @return string
+	 */
+	//public function getPath() {}
+	
+	/**
+	 * @return string
+	 */
+	public function getPathFromRoot() {
+		$urlParts = $this->getURLComponents();
+		return AdvancedPathLib::realpath($urlParts['path'], false);
+	}
+	
+	/**
+	 * @return array('dirname' => ..., 'basename' => ..., 'extension' => ..., 'filename' => ..., 'absolutepath' => ...)
+	 */
+	//public function getPathInfo() {}
+	
+	/**
+	 * @param boolean $octal TRUE to return permissions in octal form (755),
+	 *                       FALSE to return them in Unix form (rwxr-xr-x)
+	 * @return mixed The permissions of the file or FALSE if the file doesn't exist
+	 */
+	public function getPermissions($octal=true) {
+		if (is_null($this->statsCache['permissions'])) {
+			$this->fetchStats();
+		}
+		if (!$octal) {
+			return $this->statsCache['permissions'];
+		}
+		else {
+			return self::permsToOctal($this->statsCache['permissions']);
+		}
+	}
+	
+	/**
+	 * @params boolean $recursive Fetch size recursiverly in subfolders if TRUE
+	 *                 (Warning: can be _very_ slow to perform, specially on remote filesystems)
+	 * @return int The size of the file, in bytes (B)
+	 *             Note: If the file doesn't exist, or if an error occurs, the function will return 0
+	 */
+	public function getSize($recursive=false) {
+		if (is_null($this->statsCache['size']) || $recursive) {
+			//file
+			if ($this->isFile() || $this->isLink()) {
+				$urlParts = $this->getURLComponents();
+				$res = $this->getConnection();
+				$size = @ftp_size($res, $urlParts['path']);
+				$this->statsCache['size'] = ($size == -1)? 0 : $size;
+			}
+			//directory
+			elseif($this->isDirectory()) {
+				$totalSize = 0;
+				foreach($this->listFiles() as $file) {
+					if ($file->isFile() || $file->isLink()) {
+						$totalSize += $file->getSize();
+					}
+					elseif ($recursive === true) {
+						$totalSize += $file->getSize(true);
+					}
+				}
+				$this->statsCache['size'] = $totalSize;
+			}
+			else {
+				$this->statsCache['size'] = 0;
+			}
+		}
+		return $this->statsCache['size'];
+	}
+	
+	/**
+	 * @return array The components forming the URL of the path (@see parse_url() in PHP manual)
+	 */
+	//public function getURLComponents() {}
+		
+	/**
+	 * @return boolean TRUE if the file is a directory, FALSE otherwise
+	 */
+	public function isDirectory() {
+		if (is_null($this->statsCache['isDirectory'])) {
+			$this->fetchStats();
+		}
+		return $this->statsCache['isDirectory'];
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a normal file, FALSE otherwise
+	 */
+	public function isFile() {
+		if (is_null($this->statsCache['isFile'])) {
+			$this->fetchStats();
+		}
+		return $this->statsCache['isFile'];
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a link, FALSE otherwise
+	 */
+	public function isLink() {
+		if (is_null($this->statsCache['isLink'])) {
+			$this->fetchStats();
+		}
+		return $this->statsCache['isLink'];
+	}
+	
+	/**
+	 * @param string $pattern Filter pattern (same as *NIX shell)
+	 * @param boolean $flags GLOB_NORMAL | GLOB_ONLY_DIR | GLOB_DIR_IGNORE_PATTERN
+	 *                       | GLOB_DIR_FIRST | GLOB_FORCE_SCANDIR (@see class AdvancedPathLib)
+	 * @return array(AbstractFile) The list of the files contained in the "file" itself if $this
+	 * is a directory, or the files contained in the parent directory if $this is a
+	 * normal file
+	 */
+	public function listFiles($pattern='*', $flags=AdvancedPathLib::GLOB_NORMAL) {
+		if ($this->isDirectory()) {
+			$dir = $this;
+		}
+		else {
+			$dir = $this->getParentFile();
+		}
+		if (($flags & AdvancedPathLib::GLOB_CASEINSENSITIVE)) {
+			$pattern = sql_regcase($pattern);
+		}
+		
+		$res = $this->getConnection();
+		$rawList = @ftp_rawlist($res, '-a '.$dir->getPathFromRoot());		
+		if ($rawList === false) {
+			throw new Exception('FTPFile->listFiles(): Unable to list files in directory "'.$this->path.'"');
+		}
+		$parsedList = self::parseRawList($rawList, false);
+		
+		$filesObjects = array();
+		foreach($parsedList as $fileInfo) {
+			if (($flags & AdvancedPathLib::GLOB_ONLY_DIR) && $fileInfo['type'] != 'd') {
+				continue;
+			}
+			if (AdvancedPathLib::fnmatch($pattern, $fileInfo['name']) !== false
+				|| (($flags & AdvancedPathLib::GLOB_DIR_IGNORE_PATTERN) && $fileInfo['type'] == 'd')) {
+				$linkTarget = false;
+				if ($fileInfo['type'] == 'l') {
+					$parsedLinkName = self::parseLinkName($this, $fileInfo['name']);
+					if (is_array($parsedLinkName)) {
+						$fileInfo['name'] = $parsedLinkName[0];
+						$linkTarget = $parsedLinkName[1];
+					}
+				}
+
+				$fileParams = array(
+					'isDirectory' => ($fileInfo['type'] == 'd'? true : false),
+					'isFile' => ($fileInfo['type'] == 'd' || $fileInfo['type'] == 'l'? false : true),
+					'isLink' => ($fileInfo['type'] == 'l'? true : false),
+					'permissions' => $fileInfo['type'].$fileInfo['perms'],
+					'size' => $fileInfo['size'],
+					'linkTarget' => $linkTarget
+				);
+				
+				$newFileUrlParts = $dir->getURLComponents();
+				$newFileUrlParts['path'] = AdvancedPathLib::unifyPath($newFileUrlParts['path'].'/'.$fileInfo['name']);
+				$newFile = new FTPFile(AdvancedPathLib::buildURL($newFileUrlParts), $fileParams);
+				$filesObjects[] = $newFile;
+			}
+		}
+		if ($flags & AdvancedPathLib::GLOB_DIR_FIRST) {
+			$filesObjectsOrdered = array();
+			//looking for directories
+			foreach($filesObjects as $i => $fileObject) {
+				if ($fileObject->isDirectory()) {
+					$filesObjectsOrdered[] = $fileObject;
+				}
+			}
+			//looking for files and links
+			foreach($filesObjects as $i => $fileObject) {
+				if ($fileObject->isFile() || $fileObject->isLink()) {
+					$filesObjectsOrdered[] = $fileObject;
+				}
+			}
+			$filesObjects = $filesObjectsOrdered;
+		}
+		return $filesObjects;
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory has been successfully created, FALSE otherwise
+	 */
+	public function mkdir($mode=0777) {
+		if (!$this->getParentFile()->exists()) {
+			return false;	//TODO: exception
+		}
+		return $this->mkdirs($mode);
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory and all the needed parent ones have been
+	 * successfully created, FALSE otherwise
+	 * 
+	 * Note: Some FTP servers seem to automatically create directories recursively while some
+	 *       others don't, so the recursive process has to be forced in the following code.
+	 */
+	public function mkdirs($mode=0777) {
+		$parentFile = $this->getParentFile();
+		if (! $parentFile->exists()) {
+			if (!$parentFile->mkdirs($mode)) {
+				return false;	//TODO: exception
+			}
+		}
+		$pathFromRoot = $this->getPathFromRoot();
+		$res = $this->getConnection();
+		if (@ftp_mkdir($res, $pathFromRoot)) {
+			$this->statsCache['isDirectory'] = true;
+			$this->statsCache['isFile'] = false;
+			$this->statsCache['isLink'] = false;
+			
+			$newPerms = @ftp_chmod($res, $mode, $pathFromRoot);
+			if ($newPerms) {
+				$newPerms |= 0x4000;	//directory bit value
+				$this->statsCache['permissions'] = self::permsToUnix($newPerms);
+			}
+			else {
+				$this->fetchStats();
+			}
+			return true;
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully moved, FALSE otherwise
+	 */
+	//public function moveTo(AbstractFile $file) {}
+	
+	/**
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public function putContents($data) {
+		$opts = array('ftp' => array('overwrite' => true));
+		$context = stream_context_create($opts);
+		try {
+			$this->destroyConnection();
+			$bytesAdded = @file_put_contents($this->path, $data, null, $context);
+		}
+		catch(Exception $e) {
+			throw new Exception('FTPFile->putContents(): Error occured during data transfer to file "'.$this->path.'"'
+								."\n --- ".$e->getMessage());
+		}
+		if ($bytesAdded !== false) {
+			$this->statsCache['size'] += $bytesAdded;
+			$this->statsCache['isDirectory'] = false;
+			return true;
+		}
+		throw new Exception('FTPFile->putContents(): Unable to put data into file "'.$this->path.'"');
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully renamed, FALSE otherwise
+	 */
+	//public function renameTo($newName) {}
+	
+	
+	//###############################################################################
+	//			STATIC METHODS
+	//###############################################################################
+	
+	/**
+	 * @param string $host
+	 * @param int $port
+	 * @param string $user
+	 * @param string $pass
+	 * @return mixed Connection resource or FALSE
+	 */
+	protected static function isConnectionRegistered($host, $port=21, $user='anonymous', $pass='ftp@eyeos.org') {
+		$port = intval($port)? $port : 21;
+		$hostIp = gethostbyname($host);
+		if (isset(self::$connectedHosts[$user.':'.$pass.'@'.$hostIp.':'.$port])) {
+			return self::$connectedHosts[$user.':'.$pass.'@'.$hostIp.':'.$port];
+		}
+		return false;
+	}
+	
+	/**
+	 * @param mixed $resource Connection resource to register or FALSE to unregister
+	 * @param string $host Hostname or IP adress
+	 * @param int $port Port (default: 21)
+	 * @param string $user
+	 * @param string $pass
+	 * @return boolean
+	 */
+	protected static function registerConnection($resource, $host, $port=21, $user='anonymous', $pass='ftp@eyeos.org') {
+		$port = intval($port)? $port : 21;
+		$hostIp = gethostbyname($host);
+		if (isset(self::$connectedHosts[$user.':'.$pass.'@'.$hostIp.':'.$port])) {
+			if ($resource) {
+				return true;
+			}
+			else {
+				unset(self::$connectedHosts[$user.':'.$pass.'@'.$hostIp.':'.$port]);
+				return true;
+			}
+		}
+		if ($resource) {
+			self::$connectedHosts[$user.':'.$pass.'@'.$hostIp.':'.$port] = $resource;
+			return true;
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * Parses strings returned by the ftp_rawlist() function and put each file's information in
+	 * a dedicated named cell in a PHP array for better future process.
+	 * 
+	 * -- Source: php.net / Google :)
+	 * -- Adaptation: Nanawel (nanawel -at- eyeos.org)
+	 * 
+	 * @param array $array The array to parse
+	 * @param boolean $sort TRUE to force sorting the output array (folders then files, alphabetical order)
+	 * @return array An array in the form of (filename => array(fileInformations))
+	 */
+	protected static function parseRawList($array, $sort=true) {
+		$filesData = array();		
+		foreach ($array as $currentFile) {
+			$matches = array();
+			//            type   permissions   number     owner            group          size      month            day                     year/time       name
+			preg_match("/([-dl])([rwxst-]+).* ([0-9])+ ([a-zA-Z0-9]+).* ([a-zA-Z0-9]+).* ([0-9]*) ([a-zA-Z]{3}).? ([0-9]{1,2}) ([0-9]{2}:[0-9]{2}| [0-9]{4}) (.+)/",$currentFile,$matches);
+			
+			$fileInfo = array(
+				'name' => $matches[10],
+				'type' => $matches[1],
+				'perms' => $matches[2],
+				'number' => $matches[3],
+				'owner' => $matches[4],
+				'group' => $matches[5],
+				'size' => $matches[6],
+				'month' => $matches[7],
+				'day' => $matches[8],
+				'year-time' => $matches[9],
+			);	
+			
+			if ($fileInfo['name'] != '.' && $fileInfo['name'] != '..' && $fileInfo['name'] != '') {
+				$filesData[] = $fileInfo;
+			}
+		}
+		
+		//sort data (folders, then files)
+		if ($sort) {
+			usort($filesData, 'FTPFile::compareFilesData');
+		}
+		return $filesData;
+	}
+	
+	/**
+	 *
+	 * @param FTPFile $baseFile A file of the same server/connection
+	 * @param string $linkName The name of the link ("myLink -> /my/path/to/target")
+	 * @return array(0 => link_name, 1 => full_path_of_target)
+	 */
+	protected static function parseLinkName(FTPFile $baseFile, $linkName) {
+		if (preg_match('/^(.+) -> (.+)$/', $linkName, $matches)) {
+			$urlParts = $baseFile->getURLComponents();
+			$urlParts['path'] = $matches[2];
+			return array(
+				$matches[1],
+				AdvancedPathLib::buildURL($urlParts, AdvancedPathLib::OS_UNIX)
+			);
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * Sort files list processed by parse_rawlist() in order to put the folders on top
+	 * of the list.
+	 * AUTOMATICALLY CALLED BY parse_rawlist()
+	 * 
+	 * @param array $a
+	 * @param array $b
+	 * @return int A negative value if $a must be placed before $b, a positive value otherwise
+	 */
+	protected static function compareFilesData($a, $b) {
+		if ($a['type'] == $b['type']) {			
+			return strcmp($a['name'],$b['name']);
+		}
+		if ($a['type'] == 'd' && $b['type'] != 'd')
+			return -1;
+		if ($a['type'] != 'd' && $b['type'] == 'd')
+			return 1;
+	}
+}
+?>
