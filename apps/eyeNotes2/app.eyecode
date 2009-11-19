@@ -1,0 +1,152 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+require_once('./system/services/vfs/file/main'.EYE_CODE_EXTENSION);
+
+function eyeNotes2_run($params=null) {
+	global $myPid;
+	$myWindowParams = array(
+		'name'=>'eyeNotes2WND',
+		'father'=>'eyeApps',
+		'cent'=>1,
+		'width'=>600,
+		'height'=>500,
+		'title'=>'Advanced Text Editor',
+		'sendResizeMsg'=>1,
+		'sigResize'=>'Resize',
+		'savePosition' => 1
+	);
+	
+	$file = null;
+	$ext = '';
+	if($params[0]) {
+		try {
+			//--- VFS2: CREATE FILE OBJECT FROM PATH (begin) ---
+			$file = service_fsi_createFile($params[0]);
+			if ($file->isLink()) {
+				$file = $file->getLinkTarget();
+			}
+			//--- VFS2: CREATE FILE OBJECT FROM PATH (end) ---
+			
+			$ext = strtolower($file->getExtension());
+			if ($file->isDirectory()) {
+				$file = null;
+				$ext = '';
+			}
+			if ($file) {
+				$myWindowParams['title'] = service_fsi_getVirtualPath($file->getParentPath().'/'.$file->getName()).' - Advanced Text Editor';
+			}
+		}
+		catch(Exception $e) {
+			eyeX('messageBox', array('content' => 'Error: '.$e->getMessage()));
+			eyeX('rawjs', array('js' => 'console.log("'.print_r($e->getMessage(),true).'")'));
+			return;
+		}
+		
+		if($ext == 'asp') {
+			$lang = 'asp';
+		} else if($ext == 'cs') {
+			$lang = 'csharp';
+		} else if($ext == 'css') {
+			$lang = 'css';
+		} else if($ext == 'html') {
+			$lang = 'html';
+		} else if($ext == 'java') {
+			$lang = 'java';
+		} else if($ext == 'js') {
+			$lang = 'javascript';
+		} else if($ext == 'pl') {
+			$lang = 'perl';
+		} else if($ext == 'php') {
+			$lang = 'php';
+		} else if($ext == 'rb') {
+			$lang = 'ruby';
+		} else if($ext == 'sql') {
+			$lang = 'sql';
+		} else if($ext == 'vbs') {
+			$lang = 'vbscript';
+		} else if($ext == 'xsl') {
+			$lang = 'xsl';
+		} else if($ext == 'c' || $ext == 'cc' || $ext == 'cpp') {
+			$lang = 'c';
+		} else if($ext == 'eyecode') {
+			$lang = 'eyecode';
+		} else {
+			$lang = 'text';
+		}
+	} else {
+		$lang = 'text';
+	}
+	
+	$myWindow = new Window($myWindowParams);
+	$myWindow->show();
+	
+	$myTextArea = new Textarea(array(
+		'name'=>'noteContent',
+		'father'=>'eyeNotes2WND_Content',
+		'width'=>$myWindow->width-6,
+		'height'=>$myWindow->height-90,
+		'x'=>0,
+		'y'=>60/*,
+		'code'=>1,
+		'lang'=>$lang*/
+	));
+	$myTextArea->show();
+	$myTextArea->focus();	
+	$myTextArea->setCss(array(
+		'border'=>'0px',
+		'font-size'=>'9pt'
+	));
+		
+	$myToolbar = new Toolbar(array('name'=>'myBar','father'=>'eyeNotes2WND_Content'));
+	$myToolbar->show();
+	$myToolbar->addItem('new','index.php?version='.EXTERN_CACHE_VERSION.'&extern=images/toolbar/filenew.png&theme=1','New');
+	$myToolbar->addItem('open','index.php?version='.EXTERN_CACHE_VERSION.'&extern=images/toolbar/fileopen.png&theme=1','Open');
+	$myToolbar->addItem('save','index.php?version='.EXTERN_CACHE_VERSION.'&extern=images/toolbar/filesave.png&theme=1','Save',array($myTextArea));
+	$myToolbar->addItem('saveAs','index.php?version='.EXTERN_CACHE_VERSION.'&extern=images/toolbar/filesaveas.png&theme=1','Save As',array($myTextArea));
+	
+	$myHidden1 = new Hidden(array('name'=>'fileEncoding','father'=>'eyeNotes2WND','text'=>'UTF-8'));
+	reqLib('eyeWidgets','serialize',array($myHidden1));
+	
+	$myHidden2 = new Hidden(array('name'=>'notePath','father'=>'eyeNotes2WND','text'=>''));
+	reqLib('eyeWidgets','serialize',array($myHidden2));
+	
+	if($file) {
+		try {
+			require_once('events'.EYE_CODE_EXTENSION);
+			eyeNotes2_openFile($file);
+		}
+		catch(Exception $e) {
+			eyeX('messageBox', array('content' => 'Error: '.$e->getMessage()));
+			eyeX('rawjs', array('js' => 'console.log("'.print_r($e->getMessage(),true).'")'));
+			return;
+		}
+	}
+}
+
+function eyeNotes2_end($params=null) {
+	reqLib('eyeWidgets','unserialize');
+}
+
+
+?>

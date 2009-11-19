@@ -1,0 +1,172 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+/*
+	Enhanced exception library for eyeOS
+*/
+
+/**
+ * This interface defines an enhanced version of the Exception class provided by PHP.
+ * 
+ * @author Nanawel
+ * @version 0.1 - 16-Apr-2009
+ */
+interface IException {
+	public function initCause(IException $cause);
+	public function getCause();
+	public function getStackTrace();
+	public function getStackTraceAsString($html=false);
+	public function printStackTrace($html=false);
+}
+
+/**
+ * This class extends the default Exception class provided by PHP allowing to
+ * chain several Exceptions without losing trace of the different steps that lead
+ * to the origin and cause.
+ * 
+ * @author Nanawel
+ * @version 0.1 - 16-Apr-2009
+ */
+class GenericException extends Exception implements IException {
+
+	/**
+	 * The cause (A null value is permitted, and indicates that the cause is nonexistent or unknown.)
+	 * 
+	 * @var IException
+	 */
+	protected $cause = null;
+	
+	/**
+	 * The stack trace containing the parent exceptions that represent the cause of the
+	 * current one.
+	 * 
+	 * @var array
+	 */
+	private $stackTrace = array();
+	
+	
+	/**
+	 * Constructs a new exception with the specified detail message and cause.
+	 * 
+	 * @param string/array $message The detail message of an array containing the detail message and
+	 * its tokens for easier translation: array(message, token_1, token_2, ..., token_n)
+	 * @param int/IException $codeOrCause The code integer or the cause.
+	 */
+	public function __construct($message, $codeOrCause=null) {
+		//translate message if needed
+		if (is_array($message)) {
+			$tokens = array_slice($message, 1, count($message) - 1);
+			$message = i18n('translate', array($message[0], $tokens));
+		}
+		parent::__construct($message);
+		
+		//process 2nd argument (int code or IException cause)
+		if (!is_null($codeOrCause)) {
+			if (is_int($codeOrCause)) {
+				$this->code = $codeOrCause;
+			}
+			elseif($codeOrCause instanceof IException) {
+				$this->initCause($codeOrCause);
+			}
+		}
+	}
+	
+	/**
+	 * Returns a short description of this exception.
+	 * 
+	 * @return string 
+	 */
+	public function __toString() {
+		$thisClass = get_class($this);
+		return ($this->message != '')? ($thisClass . ": " . $this->message) : $thisClass;
+	}
+	
+	/**
+	 * Fills in the execution stack trace.
+	 * 
+	 * @return void
+	 */
+	protected function fillInStackTrace() {
+		$this->stackTrace = array_merge(array($this->cause), $this->cause->stackTrace);
+	}
+	
+	/**
+	 * Returns the cause of this exception or null if the cause is nonexistent or unknown.
+	 * 
+	 * @return IException
+	 */
+	public function getCause() {
+		return $this->cause;
+	}
+	
+	/**
+	 * Initializes the cause of this exception to the specified value.
+	 * 
+	 * @param IException $cause The cause.
+	 */
+	public function initCause(IException $cause) {
+		if (is_null($this->cause)) {
+			$this->cause = $cause;
+			$this->fillInStackTrace();
+		}
+	}
+	
+	/**
+	 * Returns the stack of the parent exceptions that represent the cause of
+	 * the current one.
+	 * 
+	 * @return array(IException)
+	 */
+	public function getStackTrace() {
+		return $this->stackTrace;
+	}
+	
+	/**
+	 * Returns a printable version of the stack trace.
+	 * 
+	 * @return string
+	 */
+	public function getStackTraceAsString($html=false) {
+		$return = '';
+		$newLine = $html? '<br/>' : "\n";
+		
+		$return .= $this . ' [' . $this->getFile() . ' (line ' . $this->getLine() . ')]' . $newLine;
+		$return .= 'StackTrace:' . $newLine;
+		foreach($this->stackTrace as $stackTraceElement) {
+			$return .= $stackTraceElement . ' [' . $stackTraceElement->getFile() . ' (line ' . $stackTraceElement->getLine() . ')]' . $newLine;
+			$return .= $stackTraceElement->getTraceAsString() . $newLine;
+		}
+		return $return;
+	}
+	
+	/**
+	 * Prints on the default output the result returned by IException::getStackAsString().
+	 * 
+	 * @return void
+	 */
+	public function printStackTrace($html=false) {
+		echo $this->getStackTraceAsString($html);
+	}
+}
+
+?>

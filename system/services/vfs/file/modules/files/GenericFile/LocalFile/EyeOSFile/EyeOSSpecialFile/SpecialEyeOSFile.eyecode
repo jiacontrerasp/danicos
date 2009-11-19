@@ -1,0 +1,367 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+/**
+ * 
+ * @author Nanawel
+ * @version 0.2, 11-Jan-2009
+ */
+class SpecialEyeOSFile extends EyeOSVirtualFile {	
+	
+	/**
+	 * @param $path string The path
+	 */
+	public function __construct($path, $params=null) {
+		parent::__construct($path, $params);
+		if (is_array($params)) {
+			$this->statsCache['fakeLinkContent'] = isset($params['fakeLinkContent'])? $params['fakeLinkContent'] : null;
+			$this->statsCache['name'] = isset($params['name'])?  $params['name'] : null;
+		}
+	}
+	
+	//###############################################################################
+	//			EyeOSVirtualFile OVERLOADED METHODS
+	//###############################################################################
+	
+	protected function autoSetInfoFile() {
+		return true;
+	}
+	
+	public function getInfo() {
+		if($this->isLink()) {
+			return $this->statsCache['fakeLinkContent'];
+		}
+		return false;	//TODO: exception
+	}
+	
+	public function getInfoFile() {
+		return false;	//TODO: exception
+	}
+	
+	protected function getRealPath() {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return void
+	 */
+	protected function preparePath() {}
+	
+	/**
+	 * Writes an XML-Array containing special informations about the current file.
+	 * - In the case of an existing normal file, it writes the contents to the eyeInfo file,
+	 * - in the case of an existing link, it writes the contents to the current file,
+	 * - in other cases, the operation fails and returns FALSE.
+	 *
+	 * @param array $info XML-Array containing the information to write to the file (eyeInfo) or link (eyeLink)
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public function setInfo($info) {
+		return false;	//TODO: exception
+	}
+
+	//###############################################################################
+	//			LocalFile OVERLOADED METHODS
+	//###############################################################################
+
+	/**
+	 * @return boolean TRUE if the file can be read by the current user, FALSE otherwise
+	 */
+	public function canRead() {
+		return true;
+	}
+	
+	/**
+	 * @return boolean TRUE if the file can be written by the current user, FALSE otherwise
+	 */
+	public function canWrite() {
+		return false;
+	}
+	
+	/**
+	 * @param AbstractFile $file
+	 * @param boolean $foldersFirst
+	 * @return int A negative value if the current file should be placed before $file,
+	 * zero (0) if they are equals, a positive value otherwise
+	 */
+	public function compareTo(AbstractFile $file, $foldersFirst=false) {
+		//TODO
+		return false;
+	}
+	
+	/**
+	 * @param AbstractFile $file The source file to copy from
+	 * @return boolean TRUE if the file has been successfully copied from $file, FALSE otherwise
+	 */
+	public function copyFrom(AbstractFile $file, $overwrite=true) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @param AbstractFile $file The target file to copy to
+	 * @return boolean TRUE if the file has been successfully copied to $file, FALSE otherwise
+	 */
+	public function copyTo(AbstractFile $file, $overwrite=true) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @param boolean $overwrite Set to TRUE to try overwriting the file if it already exists
+	 * @return boolean TRUE if the file has been successfully created, FALSE otherwise
+	 */
+	public function createNewFile($overwrite=false) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @param AbstractFile $target The target file the link will point to
+	 * @param boolean $overwrite
+	 * @return boolean TRUE if the link has been successfully created, FALSE otherwise
+	 */
+	public function createNewLink(AbstractFile $target, $overwrite=false) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @param boolean $recursive
+	 * @param boolean $onlyContents In the case of a directory, only delete the files it contains if TRUE
+	 * or the entire directory otherwise
+	 * @return boolean TRUE if the file has been successfully deleted, FALSE otherwise
+	 */
+	public function delete($recursive=false, $onlyContents=false) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return boolean TRUE if the current file designate the same file as $file, FALSE otherwise
+	 */
+	public function equals(AbstractFile $file) {
+		//TODO
+		return false;
+	}
+	
+	/**
+	 * @return boolean TRUE if the file/folder/link exists, FALSE otherwise
+	 */
+	public function exists($forceCheck=false) {
+		return true;
+	}
+	
+	/**
+	 * The object returned will either represent a file located in the directory if the current
+	 * file exists and is a directory, or a file located in the same directory as the current
+	 * file otherwise.
+	 * @param string $fileName The name of the file
+	 * @return AbstractFile
+	 */
+	public function getChildFile($fileName, $params=null) {
+		//TODO?
+		return false;
+	}
+	
+	/**
+	 * NOTE: in the case of a link, the data is read from its target.
+	 * @return mixed The content of the file or FALSE if an error occured
+	 */
+	public function getContents() {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return string The extension of the file
+	 */
+	public function getExtension() {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return AbstractFile The target file pointed by the link, or FALSE if an error occured
+	 */
+	public function getLinkTarget() {
+		if($this->isLink()) {
+			return VirtualPathManager::createFile($this->statsCache['fakeLinkContent']['eyeLink'][0]['content'][0]);
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return string The name of the file
+	 */
+	public function getName() {
+		if (isset($this->statsCache['name'])) {
+			return i18n('translate', array($this->statsCache['name']));
+		}
+		return parent::getName();
+	}
+	
+	/**
+	 * @return string The path of the file's parent directory
+	 */
+	public function getParentPath() {
+		return $this->path;
+	}
+	
+	/**
+	 * @return string
+	 */
+	public function getPathFromRoot() {
+		return $this->path;
+	}
+	
+	/**
+	 * @return array('dirname' => ..., 'basename' => ..., 'extension' => ..., 'filename' => ...)
+	 */
+	public function getPathInfo() {
+		//TODO?
+		return false;
+	}
+	
+	/**
+	 * @return string The permissions, in *NIX-like style (-rwxrwxrwx)
+	 */
+	public function getPermissions($octal=true) {
+		$perms = 0100777;
+		if (!$octal) {
+			$perms = self::permsToUnix($perms);
+		}
+		return $perms;
+	}
+	
+	/**
+	 * @return int The size of the file (in KB)
+	 */
+	public function getSize($recursive=false) {
+		return 0;
+	}
+		
+	/**
+	 * @return boolean TRUE if the file is a directory, FALSE otherwise
+	 */
+	public function isDirectory() {
+		return is_null($this->statsCache['fakeLinkContent']);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a normal file, FALSE otherwise
+	 */
+	public function isFile() {
+		return false;
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a link, FALSE otherwise
+	 */
+	public function isLink() {
+		return !is_null($this->statsCache['fakeLinkContent']);
+	}
+	
+	/**
+	 * @return array(AbstractFile) The list of the files contained in the "file" itself if this
+	 * one is a directory, or the files contained in the parent directory if this one is
+	 * a normal file
+	 */
+	public function listFiles($pattern='*', $flags=AdvancedPathLib::GLOB_NORMAL) {
+		global $currentUser;
+		if (! ($flags & AdvancedPathLib::GLOB_ONLY_DIR)) {
+			$myFiles = VirtualPathManager::createFile(EYEOSFILE_URL_SCHEME_USERFILES.'://localhost/'.EYEOSFILE_URL_LOCATOR_CHAR.$currentUser);
+			$myFiles_linkContent = array(
+				'eyeLink' => array(
+					array(
+						'content' => array($myFiles->getAbsolutePath()),
+						'icon' => array('desktop')
+					)
+				)
+			);
+			$myFiles_link = new SpecialEyeOSFile(EYEOSFILE_URL_SCHEME_EYEOS.'://localhost/My Files', array('fakeLinkContent' => $myFiles_linkContent));
+			
+			$myConf = VirtualPathManager::createFile(EYEOSFILE_URL_SCHEME_USERCONF.'://localhost/'.EYEOSFILE_URL_LOCATOR_CHAR.$currentUser);
+			$myConf_linkContent = array(
+				'eyeLink' => array(
+					array(
+						'content' => array($myConf->getAbsolutePath()),
+						'icon' => array('repositories')
+					)
+				)
+			);
+			$myConf_link = new SpecialEyeOSFile(EYEOSFILE_URL_SCHEME_EYEOS.'://localhost/My Configuration Files', array('fakeLinkContent' => $myConf_linkContent));
+			
+			$myTrash = VirtualPathManager::createFile(EYEOSFILE_URL_SCHEME_USERTRASH.'://localhost/'.EYEOSFILE_URL_LOCATOR_CHAR.$currentUser);
+			$myTrash_linkContent = array(
+				'eyeLink' => array(
+					array(
+						'content' => array($myTrash->getAbsolutePath()),
+						'icon' => array('trash')
+					)
+				)
+			);
+			$myTrash_link = new SpecialEyeOSFile(EYEOSFILE_URL_SCHEME_EYEOS.'://localhost/My Trash', array('fakeLinkContent' => $myTrash_linkContent));
+			
+			$files = array(
+				$myFiles_link,
+				$myConf_link,
+				$myTrash_link
+			);
+			return $files;
+		}
+		return array();
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory has been successfully created, FALSE otherwise
+	 */
+	public function mkdir($mode=0777) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory and all the needed parent ones have been
+	 * successfully created, FALSE otherwise
+	 */
+	public function mkdirs($mode=0777) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully moved, FALSE otherwise
+	 */
+	public function moveTo(AbstractFile $file) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * NOTE: in the case of a link, the data is written to its target.
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public function putContents($data) {
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully renamed, FALSE otherwise
+	 */
+	public function renameTo($newName) {
+		return false;	//TODO: exception
+	}
+}
+?>

@@ -1,0 +1,278 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+/**
+ * @author Nanawel (nanawel -at- eyeos.org)
+ * @version 0.2 / 28-Apr-2009
+ */
+ 
+//######## TEMPORARY HACK ######## WILL BE REMOVED #########
+if ($currentUser) {
+	$userConfDir = service('um','getUserDir', array($currentUser));
+	if (!is_dir($userConfDir.CONF_USER_DIR.'/mnt')) {
+		@mkdir($userConfDir.CONF_USER_DIR.'/mnt');
+	}
+	if (!is_file($userConfDir.CONF_USER_DIR.'/mnt/conf.xml')) {
+		$fp = @fopen($userConfDir.CONF_USER_DIR.'/mnt/conf.xml', 'w');
+		@fclose($fp);
+	}
+}
+//######## TEMPORARY HACK ######## WILL BE REMOVED #########
+ 
+ 
+ 
+//---------------------------------------------------
+//	MOUNTPOINTS
+//---------------------------------------------------
+
+/**
+ * TODO
+ * 
+ * @return array
+ * @exception
+ */
+function service_mnt_getMountPointData($mountPointPath) {
+	$eyeOSDir_resolvedPath = AdvancedPathLib::resolvePath($mountPointPath, EYE_ROOT, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+	if ($eyeOSDir_resolvedPath) {
+		//USER FILES
+		if (preg_match('`^/'.USERS_DIR.'/.{2}[0-9]{1}/(.+)/'.FILES_USER_DIR.'(.*)$`', $eyeOSDir_resolvedPath, $matches)) {
+			return service_mnt_getUserMountPointData($matches[1], EYE_ROOT.$eyeOSDir_resolvedPath);
+		}
+		
+		//...
+		
+	}
+	return false;	//TODO: exception
+}
+
+function service_mnt_registerMountPoint($mountPointPath, $mountPointTargetUrl) {
+	//TODO
+}
+
+function service_mnt_unregisterMountPoint($mountPointPath) {
+	//TODO
+}
+
+function service_mnt_setMountPointActive($mountPointPath, $active=true) {
+	//TODO
+}
+
+/**
+ * TODO
+ * 
+ * @return array
+ * @exception
+ */
+function service_mnt_getMountPointsList($referenceDirPath) {
+	//USER FILES
+	$userDir_resolvedPath = AdvancedPathLib::resolvePath($referenceDirPath, EYE_ROOT.'/'.USERS_DIR, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+	if ($userDir_resolvedPath && preg_match('`^/.{2}[0-9]{1}/(.+)/'.FILES_USER_DIR.'(.*)$`', $userDir_resolvedPath, $matches)) {
+		return service_mnt_getUserMountPointsList($matches[1]);
+	}
+	
+	//GROUP FILES
+	//...
+	
+	return array();
+}
+
+/**
+ * TODO
+ * 
+ * @return boolean TRUE if $moutpoint is not located within any of the given $existingMountPoints,
+ *         FALSE otherwise
+ */
+function _checkForOverlapping($mountPoint, $existingMountPoints) {
+	$mountPoint = AdvancedPathLib::realpath($mountPoint);
+	foreach($existingMountPoints as $currentExistingMountPoint) {
+		$currentExistingMountPoint = AdvancedPathLib::realpath($currentExistingMountPoint);
+		if (stripos($mountPoint, $currentExistingMountPoint) === 0) {
+			return false;
+		}
+	}
+	return true;
+}
+
+//---------------------------------------------------
+//	USER MOUNTPOINTS
+//---------------------------------------------------
+
+/**
+ * TODO
+ * 
+ * @return array(string)
+ */
+function service_mnt_getUserMountPointsList($userName) {
+	$mountPointsFile = service('um','getUserDir', array($userName)).CONF_USER_DIR.'/mnt/conf.xml';
+	$xml = eyeXML('getXMLfile', array($mountPointsFile));
+	
+	$return = array();
+	if (is_array($xml['eyeOSMountPoint'][0]['mountPoint'])) { 
+		foreach($xml['eyeOSMountPoint'][0]['mountPoint'] as $mountPointFile) {
+			$return[] = AdvancedPathLib::realpath($mountPointFile['root'][0]);
+		}
+	}
+	return $return;
+}
+
+/**
+ * TODO
+ * 
+ * @return boolean
+ * @exception
+ */
+function service_mnt_registerUserMountPoint($userName, $mountPointPath, $mountPointTargetUrl, $active=true) {
+	$mountPointsFile = service('um','getUserDir', array($userName)).CONF_USER_DIR.'/mnt/conf.xml';
+	$xml = eyeXML('getXMLfile', array($mountPointsFile));
+	if (!is_array($xml['eyeOSMountPoint'][0]['mountPoint'])) {
+		$xml = array('eyeOSMountPoint' => array(array('mountPoint' => array())));
+	}
+	$mountPointPath = AdvancedPathLib::resolvePath($mountPointPath, EYE_ROOT, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+	if ($mountPointPath === false) {
+		return false;	//TODO: exception
+	}
+	$mountPointPath = EYE_ROOT.$mountPointPath;
+
+	if (!_checkForOverlapping($mountPointPath, service_mnt_getUserMountPointsList($userName))) {
+		return false;	//TODO: exception
+	}
+	
+	$newMountPointDesc = array(
+		'root' => array($mountPointPath),
+		'target' => array($mountPointTargetUrl),
+		'active' => array($active? 'true' : 'false')
+	);
+		
+	//update mount points list
+	$xml['eyeOSMountPoint'][0]['mountPoint'][] = $newMountPointDesc;
+	if (!eyeXML('setXMLfile', array($mountPointsFile, $xml))) {
+		return false;	//TODO: exception
+	}
+	return true;
+}
+
+/**
+ * TODO
+ * 
+ * @return boolean
+ * @exception
+ */
+function service_mnt_unregisterUserMountPoint($userName, $mountPointPath) {
+	$mountPointsFile = service('um','getUserDir', array($userName)).CONF_USER_DIR.'/mnt/conf.xml';
+	$xml = eyeXML('getXMLfile', array($mountPointsFile));
+	if (!is_array($xml['eyeOSMountPoint'][0]['mountPoint'])) {
+		$xml = array('eyeOSMountPoint' => array(array('mountPoint' => array())));
+	}
+	$mountPointPath = AdvancedPathLib::resolvePath($mountPointPath, EYE_ROOT, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+	if ($mountPointPath === false) {
+		return false;	//TODO: exception
+	}
+	$mountPointPath = EYE_ROOT.$mountPointPath;
+	
+	//update mount points list
+	$entryFound = false;
+	foreach($xml['eyeOSMountPoint'][0]['mountPoint'] as $key => $currentMountPointNode) {
+		if ($currentMountPointNode['root'][0] == $mountPointPath) {
+			unset($xml['eyeOSMountPoint'][0]['mountPoint'][$key]);
+			$entryFound = true;
+		}
+	}
+	if (!$entryFound) {
+		return false;	//TODO: exception
+	}
+	if (!eyeXML('setXMLfile', array($mountPointsFile, $xml))) {
+		return false;	//TODO: exception
+	}
+	return true;
+}
+
+/**
+ * TODO
+ * 
+ * @return array
+ * @exception
+ */
+function service_mnt_getUserMountPointData($userName, $mountPointPath) {
+	$mountPointsFile = service('um','getUserDir', array($userName)).CONF_USER_DIR.'/mnt/conf.xml';
+	$xml = eyeXML('getXMLfile', array($mountPointsFile));
+	if (!is_array($xml['eyeOSMountPoint'][0]['mountPoint'])) {
+		$xml = array('eyeOSMountPoint' => array(array('mountPoint' => array())));
+	}
+	$mountPointPath = AdvancedPathLib::resolvePath($mountPointPath, EYE_ROOT, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+	if ($mountPointPath === false) {
+		return false;	//TODO: exception
+	}
+	$mountPointPath = EYE_ROOT.$mountPointPath;
+	
+	foreach($xml['eyeOSMountPoint'][0]['mountPoint'] as $key => $currentMountPointNode) {
+		if ($currentMountPointNode['root'][0] == $mountPointPath) {
+			return $currentMountPointNode;
+		}
+	}
+	return false;	//TODO: exception
+}
+
+/**
+ * TODO
+ * 
+ * @return boolean
+ * @exception
+ */
+function service_mnt_setUserMountPointActive($userName, $mountPointPath, $active=true) {
+	$mountPointsFile = service('um','getUserDir', array($userName)).CONF_USER_DIR.'/mnt/conf.xml';
+	$xml = eyeXML('getXMLfile', array($mountPointsFile));
+	if (!is_array($xml['eyeOSMountPoint'][0]['mountPoint'])) {
+		$xml = array('eyeOSMountPoint' => array(array('mountPoint' => array())));
+	}
+	
+	//update mount point
+	foreach($xml['eyeOSMountPoint'][0]['mountPoint'] as $key => $currentMountPointNode) {
+		if ($currentMountPointNode['root'][0] == $mountPointPath) {
+			$xml['eyeOSMountPoint'][0]['mountPoint'][$key]['active'][0] = $active? 'true' : 'false';
+			if (!eyeXML('setXMLfile', array($mountPointsFile, $xml))) {
+				return false;	//TODO: exception
+			}
+			return true;
+		}
+	}
+	return false;	//TODO: exception
+}
+
+//---------------------------------------------------
+//	GROUP MOUNTPOINTS
+//---------------------------------------------------
+
+function service_mnt_getGroupMountPointsList($groupName) {
+	//TODO
+}
+
+function service_mnt_registerGroupMountPoint($groupName, $mountPointPath, $mountPointTargetUrl, $params) {
+	//TODO
+}
+
+function service_mnt_unregisterGroupMountPoint($groupName, $mountPointPath) {
+	//TODO
+}
+	
+?>

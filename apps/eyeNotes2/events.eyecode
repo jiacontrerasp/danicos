@@ -1,0 +1,248 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+require_once('./system/services/vfs/file/main'.EYE_CODE_EXTENSION);
+
+define('EYENOTES2_SIZE_WARNING', 300 * 1024);		//300 KB
+
+//error_reporting(E_ALL ^ E_NOTICE);
+
+function eyeNotes2_on_New(){
+	service('proc','launch',array('eyeNotes2'));
+}
+
+function eyeNotes2_on_Open($params=null) {
+	global $checknum;
+	$options = array(
+		0,
+		'SelectFileOpen',
+		$checknum,
+	);
+	service('proc','launch',array('eyeDialog',$options));
+}
+
+function eyeNotes2_on_Resize($params=null) {
+	$width = $params['arg'][0];
+	$height = $params['arg'][1];
+	$width = intval($width);
+	$height = intval($height);
+	$width = $width - 19;
+	$height = $height - 100;
+	$GLOBALS['noteContent']->setWidth($width);
+	$GLOBALS['noteContent']->setHeight($height);
+}
+
+function eyeNotes2_on_Save($params=null) {
+	global $checknum;
+	$options = array(
+		1,
+		'SelectFileSave',
+		$checknum,
+	);
+	if(is_object($GLOBALS['notePath']) && $GLOBALS['notePath']->text) {
+		try {
+			//--- VFS2: WRITE DATA TO FILE (begin) ---
+			$file = service_fsi_createFile($GLOBALS['notePath']->text);
+			if (!$file->putContents($GLOBALS['noteContent']->text)) {
+				eyeX('messageBox', array('content' => 'Unable to write file\'s contents'));
+				return;
+			}
+			//--- VFS2: WRITE DATA TO FILE (end) ---
+		}
+		catch(Exception $e) {
+			eyeX('messageBox', array('content' => 'Error: '.$e->getMessage()));
+			eyeX('rawjs', array('js' => 'console.log("'.print_r($e->getMessage(),true).'")'));
+			return;
+		}		
+		service('eyex','messageBox',array('content'=>'File saved successfully.'));
+	} else {
+		service('proc','launch',array('eyeDialog',$options));
+	}
+}
+
+function eyeNotes2_on_SaveAs($params=null) {
+	global $checknum;
+	$options = array(
+		1,
+		'SelectFileSave',
+		$checknum,
+	);
+	service('proc','launch',array('eyeDialog',$options));
+}
+
+
+function eyeNotes2_on_SelectFileSave($params=null) {
+	global $currentUser;
+	$file = $params['arg'][0];
+	if($file) {		
+		try {
+			//--- VFS2: CREATE A FILE FROM A PATH, WRITE DATA (begin) ---
+			$filepath = 'home://~'.$currentUser.'/'.$file;			//this won't be necessary since eyeDialog would be rewritten
+			$file = service_fsi_createFile($filepath);
+			if ($file->getExtension() == '') {
+				$file = service_fsi_createFile($filepath.'.txt');
+			}
+			if (!$file->exists()) {
+				$file->createNewFile();
+			}
+			
+			$content = $GLOBALS['noteContent']->text;
+			if (is_object($GLOBALS['fileEncoding']) && $GLOBALS['fileEncoding']->text) {
+				$content = mb_convert_encoding($content, 'UTF-8', $GLOBALS['fileEncoding']->text);
+			}
+			if (!$file->putContents($content)) {
+				eyeX('messageBox', array('content' => 'Unable to write file\'s contents'));
+				return;
+			}
+			//--- VFS2: CREATE A FILE FROM A PATH, WRITE DATA (end) ---
+		}
+		catch(Exception $e) {
+			eyeX('messageBox', array('content' => 'Error: '.$e->getMessage()));
+			eyeX('rawjs', array('js' => 'console.log("'.print_r($e->getMessage(),true).'")'));
+			return;
+		}
+		
+		$myHidden = new Hidden(array('name'=>'notePath','father'=>'eyeNotes2WND','text'=>$file->getPath()));
+		reqLib('eyeWidgets','serialize',array($myHidden));
+		service('eyex','messageBox',array('content'=>'File saved successfully.'));
+	}
+}
+
+function eyeNotes2_on_SelectFileOpen($params=null) {
+	global $currentUser;
+	
+	$filepath = $params['arg'][0];
+	if($filepath) {
+		//--- VFS2: CREATE A FILE FROM A PATH, READ DATA (begin) ---
+		$filepath = 'home://~'.$currentUser.'/'.$filepath;
+		$file = service_fsi_createFile($filepath);		
+		
+		$ext = strtolower($file->getExtension());
+		if($ext == 'asp') {
+			$lang = 'asp';
+		} else if($ext == 'cs') {
+			$lang = 'csharp';
+		} else if($ext == 'css') {
+			$lang = 'css';
+		} else if($ext == 'html') {
+			$lang = 'html';
+		} else if($ext == 'java') {
+			$lang = 'java';
+		} else if($ext == 'js') {
+			$lang = 'javascript';
+		} else if($ext == 'pl') {
+			$lang = 'perl';
+		} else if($ext == 'php') {
+			$lang = 'php';
+		} else if($ext == 'rb') {
+			$lang = 'ruby';
+		} else if($ext == 'sql') {
+			$lang = 'sql';
+		} else if($ext == 'vbs') {
+			$lang = 'vbscript';
+		} else if($ext == 'xsl') {
+			$lang = 'xsl';
+		} else if($ext == 'c' || $ext == 'cc' || $ext == 'cpp') {
+			$lang = 'c';
+		} else if($ext == 'eyecode') {
+			$lang = 'eyecode';
+		} else {
+			$lang = 'text';
+		}
+		//$GLOBALS['notePath']->setText($file->getAbsolutePath());
+		eyeNotes2_openFile($file);
+		//--- VFS2: CREATE A FILE FROM A PATH, READ DATA (end) ---
+	}
+}
+
+function eyeNotes2_on_warning_yes_BTN($params=null) {
+	if(is_object($GLOBALS['notePath']) && $GLOBALS['notePath']->text) {
+		try {
+			$file = service_fsi_createFile($GLOBALS['notePath']->text);
+			eyeNotes2_openFile($file, true);
+		}
+		catch(Exception $e) {
+			eyeX('messageBox', array('content' => 'Error: '.$e->getMessage()));
+			eyeX('rawjs', array('js' => 'console.log("'.print_r($e->getMessage(),true).'")'));
+			return;
+		}
+	}
+}
+
+function eyeNotes2_on_warning_no_BTN($params=null) {
+	if(is_object($GLOBALS['warning_DLG'])) {
+		$GLOBALS['warning_DLG']->close();
+	}
+}
+
+
+function eyeNotes2_openFile($file, $force=false) {
+	if (!is_object($file)) {
+		return;
+	}
+	
+	if (!$force && $file->getSize() >= EYENOTES2_SIZE_WARNING) {
+		eyeX('messageBox',array(
+			'content' => "This file is bigger than ".(EYENOTES2_SIZE_WARNING / 1024)."KB, this may lead your browser to crash on loading. Are you sure you want to edit it anyway?",
+			'type' => 3,
+			'title' => 'Warning',
+			'win_name' => 'warning_DLG',
+			'win_style' => TITLE + CLOSE,
+			'win_removepid' => 0,
+			'btn1_capt' => 'Yes',
+			'btn1_name' => 'warning_yes_BTN',
+			'btn2_capt' => 'No',
+			'btn2_name' => 'warning_no_BTN',
+			'father' => 'eyeNotes2WND',
+			'img' => '!'
+		));
+	}
+	else {
+		//--- VFS2: EXTRACT CONTENT FROM FILE (begin) ---
+		$content = $file->getContents();
+		if ($content === false) {
+			eyeX('messageBox', array('content' => 'Unable to read file\'s contents'));
+			return;
+		}
+		$encoding = mb_detect_encoding($content, 'ISO-8859-15, ISO-8859-1, ASCII, UTF-8');
+		if ($encoding != 'UTF-8') {
+			//$content = mb_convert_encoding($content, $encoding, 'UTF-8');			//SHOULD WORK BUT DOESN'T
+			$content = utf8_encode($content);
+		}
+		//--- VFS2: EXTRACT CONTENT FROM FILE (end) ---
+		$GLOBALS['fileEncoding']->setText($encoding);
+		$GLOBALS['noteContent']->setText($content);
+		$GLOBALS['notePath']->setText($file->getPath());
+		$GLOBALS['eyeNotes2WND']->setTitle(service_fsi_getVirtualPath($file->getParentPath().'/'.$file->getName()).' - Advanced Text Editor');
+	}
+}
+
+
+function eyeNotes2_on_Message($params="") {
+	reqLib('eyeWidgets','updateContent',$params);
+}
+
+function eyeNotes2_on_Close(){
+	proc('end');
+}
+?>

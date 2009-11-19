@@ -1,0 +1,258 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+/**
+ * This class is an abstraction of a file. Any extending file class must implement
+ * all those methods.
+ * 
+ * @author Nanawel
+ * @version 0.2, 11-Jan-2009
+ */
+abstract class AbstractFile {
+	
+	/**
+	 * @return string A string representation of the object
+	 */
+	public function __toString() {
+		return get_class($this).': '.$this->getAbsolutePath();
+	}
+
+	/**
+	 * @return boolean TRUE if the file can be read by the current user, FALSE otherwise
+	 */
+	public abstract function canRead();
+	
+	/**
+	 * @return boolean TRUE if the file can be written by the current user, FALSE otherwise
+	 */
+	public abstract function canWrite();
+	
+	/**
+	 * @param AbstractFile $file
+	 * @param boolean $foldersFirst
+	 * @return int A negative value if the current file should be placed before $file,
+	 * zero (0) if they are equals, a positive value otherwise
+	 */
+	public function compareTo(AbstractFile $file, $foldersFirst=false) {
+		if ($foldersFirst) {
+			$isDirThis = $this->isDirectory();
+			$isDirFile = $file->isDirectory();
+			if ($isDirThis && !$isDirFile) {
+				return -1;
+			}
+			elseif($isDirFile && !$isDirThis) {
+				return 1;
+			}
+		}
+		$urlParts = $file->getURLComponents();
+		$urlParts['path'] = $file->getPathFromRoot();				//needed to resolve the path (if relative)
+		$absolutePathFile = AdvancedPathLib::buildURL($urlParts);
+		$urlParts = $this->getURLComponents();
+		$urlParts['path'] = $this->getPathFromRoot();				//needed to resolve the path (if relative)
+		$absolutePathThis = AdvancedPathLib::buildURL($urlParts);
+		return utf8_strcasecmp($absolutePathThis, $absolutePathFile);
+	}
+	
+	/**
+	 * @param AbstractFile $file The source file to copy from
+	 * @return boolean TRUE if the file has been successfully copied from $file, FALSE otherwise
+	 */
+	public abstract function copyFrom(AbstractFile $file, $overwrite=true);
+	
+	/**
+	 * @param AbstractFile $file The target file to copy to
+	 * @return boolean TRUE if the file has been successfully copied to $file, FALSE otherwise
+	 */
+	public function copyTo(AbstractFile $file, $overwrite=true) {
+		return $file->copyFrom($this, $overwrite);
+	}
+	
+	/**
+	 * @param boolean $overwrite Set to TRUE to try overwriting the file if it already exists
+	 * @return boolean TRUE if the file has been successfully created, FALSE otherwise
+	 */
+	public abstract function createNewFile($overwrite=false);
+	
+	/**
+	 * @param AbstractFile $target The target file the link will point to
+	 * @param boolean $overwrite
+	 * @return boolean TRUE if the link has been successfully created, FALSE otherwise
+	 */
+	public abstract function createNewLink(AbstractFile $target, $overwrite=false);
+	
+	/**
+	 * @param boolean $recursive
+	 * @param boolean $onlyContents In the case of a directory, only delete the files it contains if TRUE
+	 * or the entire directory otherwise
+	 * @return boolean TRUE if the file has been successfully deleted, FALSE otherwise
+	 */
+	public abstract function delete($recursive=false, $onlyContents=false);
+	
+	/**
+	 * @return boolean TRUE if the current file designate the same file as $file, FALSE otherwise
+	 */
+	public function equals(AbstractFile $file) {
+		return $this->compareTo($file) === 0;
+	}
+	
+	/**
+	 * @param boolean $forceCheck TRUE to force clearing the cache before checking the file's existence
+	 * @return boolean TRUE if the file/folder/link exists, FALSE otherwise
+	 */
+	public abstract function exists($forceCheck=false);
+	
+	/**
+	 * @return string
+	 */
+	public abstract function getAbsolutePath();
+	
+	/**
+	 * The object returned will either represent a file located in the directory if the current
+	 * file exists and is a directory, or a file located in the same directory as the current
+	 * file otherwise.
+	 * @param string $fileName The name of the file
+	 * @return AbstractFile
+	 */
+	public function getChildFile($fileName, $params=null) {
+		if ($this->isDirectory()) {
+			$filePath = $this->getAbsolutePath().'/'.$fileName;
+		}
+		else {
+			$filePath = $this->getParentPath().'/'.$fileName;
+		}
+		$className = get_class($this);
+		return new $className($filePath, $params);
+	}
+	
+	/**
+	 * NOTE: in the case of a link, the data is read from its target.
+	 * @return mixed The content of the file or FALSE if an error occured
+	 */
+	public abstract function getContents();
+	
+	/**
+	 * @return string The extension of the file
+	 */
+	public abstract function getExtension();
+	
+	/**
+	 * @return AbstractFile The target file pointed by the link, or FALSE if an error occured
+	 */
+	public abstract function getLinkTarget();
+	
+	/**
+	 * @return string The name of the file
+	 */
+	public abstract function getName();
+	
+	/**
+	 * @return string The path of the file's parent directory
+	 */
+	public abstract function getParentPath();
+	
+	/**
+	 * @return LocalFile The file corresponding to the file's parent directory
+	 */
+	public abstract function getParentFile();
+	
+	/**
+	 * @return string
+	 */
+	public abstract function getPath();
+	
+	/**
+	 * @return string
+	 */
+	public abstract function getPathFromRoot();
+	
+	/**
+	 * @return array('dirname' => ..., 'basename' => ..., 'extension' => ..., 'filename' => ...)
+	 */
+	public abstract function getPathInfo();
+	
+	/**
+	 * @return string The permissions of the file
+	 */
+	public abstract function getPermissions($octal=true);
+	
+	/**
+	 * @return int The size of the file (in KB)
+	 */
+	public abstract function getSize($recursive=false);
+	
+	/**
+	 * @return array The result of the function AdvancedPathLib::parse_url() on the path
+	 */
+	public abstract function getURLComponents();
+		
+	/**
+	 * @return boolean TRUE if the file is a directory, FALSE otherwise
+	 */
+	public abstract function isDirectory();
+	
+	/**
+	 * @return boolean TRUE if the file is a normal file, FALSE otherwise
+	 */
+	public abstract function isFile();
+	
+	/**
+	 * @return boolean TRUE if the file is a link, FALSE otherwise
+	 */
+	public abstract function isLink();
+	
+	/**
+	 * @return array(AbstractFile) The list of the files contained in the "file" itself if this
+	 * one is a directory, or the files contained in the parent directory if this one is
+	 * a normal file
+	 */
+	public abstract function listFiles($pattern='*', $flags=AdvancedPathLib::GLOB_NORMAL);
+	
+	/**
+	 * @return boolean TRUE if the directory has been successfully created, FALSE otherwise
+	 */
+	public abstract function mkdir($mode=0777);
+	
+	/**
+	 * @return boolean TRUE if the directory and all the needed parent ones have been
+	 * successfully created, FALSE otherwise
+	 */
+	public abstract function mkdirs($mode=0777);
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully moved, FALSE otherwise
+	 */
+	public abstract function moveTo(AbstractFile $file);
+	
+	/**
+	 * NOTE: in the case of a link, the data is written to its target.
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public abstract function putContents($data);
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully renamed, FALSE otherwise
+	 */
+	public abstract function renameTo($newName);
+}
+?>

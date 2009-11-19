@@ -1,0 +1,645 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+define('EYEOSVIRTUALFILE_FILENAME_MAXLENGTH', 40);
+
+/**
+ * This class extends the EyeOSFile class for the virtual files contained in the users
+ * files directory, or group files directory.
+ * It automatically manages operations to the files and to the special INFO file (eyeInfo).
+ * 
+ * @author Nanawel
+ * @version 0.2.1, 13-Apr-2009
+ */
+class EyeOSVirtualFile extends EyeOSFile {
+	protected $virtualInfoFile = null;
+	
+	/**
+	 * Should be const...
+	 * @var array
+	 */
+	public static $EYEOSVIRTUALFILE_BLACKCHARS = array('/', '\\', '<', '>', '[', ']', '*', '?');
+	
+	/**
+	 * 
+	 * @param string $path  
+	 * @param array $params 
+	 */
+	public function __construct($path, $params=null) {
+		parent::__construct($path, $params);
+	}
+	
+	//###############################################################################
+	//			METHODS
+	//###############################################################################
+	
+	protected function autoSetInfoFile() {
+		$this->preparePath();
+		$filesList = AdvancedPathLib::glob($this->getParentPath(), pathinfo($this->path, PATHINFO_FILENAME).'.'.EYEOS_INFO_EXT);
+		$filesListLength = count($filesList);
+		if ($filesListLength == 1) {
+			$this->virtualInfoFile = new EyeOSVirtualInfoFile($filesList[0]);
+			return true;
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * Returns an XML-Array containing special informations about the current file.
+	 * - In the case of an existing normal file, it returns the contents of the eyeInfo file,
+	 * - in the case of an existing link, it returns the contents of the current file,
+	 * - in other cases, it returns FALSE.
+	 *
+	 * @return array
+	 */
+	public function getInfo() {
+		if ($this->isFile()) {
+			return eyeXML('xml2array', array($this->getInfoFile()->getContents()));
+		}
+		elseif($this->isLink()) {
+			return eyeXML('xml2array', array(parent::getContents()));
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * Returns the File object holding special informations about the current file.
+	 * - In the case of an existing normal file, it returns the object pointing to the eyeInfo file,
+	 * - in the case of an existing link, it returns the current object,
+	 * - in other cases, it returns FALSE.
+	 *
+	 * @return EyeOSFile
+	 */
+	public function getInfoFile() {
+		if ($this->isDirectory()) {
+			return false;	//TODO: exception
+		}
+		elseif($this->isLink()) {
+			return $this;
+		}
+		if (is_null($this->virtualInfoFile)) {
+			if (!$this->autoSetInfoFile()) {
+				return false;	//TODO: exception
+			}
+		}
+		return $this->virtualInfoFile;
+	}
+	
+	protected function getRealPath() {
+		if ($this->isLink()) {
+			return $this->getPathFromRoot();
+		}
+		$urlParts = AdvancedPathLib::parse_url($this->path);
+		$parentPath = AdvancedPathLib::dirname($urlParts['path']);
+		$filesList = AdvancedPathLib::glob($parentPath, $this->getName().'_*.'.EYEOS_FILE_EXT);
+		if (count($filesList) > 0) {
+			return $filesList[0];
+		}
+		else {
+			return false;	//TODO: exception
+		}
+	}
+	
+	/**
+	 * @return void
+	 */
+	protected function preparePath() {
+		if ($this->isDirectory() || $this->isLink()) {
+			return;
+		}
+		if (self::getVirtualFilename($this->path) == $this->path) {
+			$realpath = $this->getRealPath();
+			if ($realpath) {
+				$this->path = $realpath;
+			}
+		}
+	}
+	
+	/**
+	 * Writes an XML-Array containing special informations about the current file.
+	 * - In the case of an existing normal file, it writes the contents to the eyeInfo file,
+	 * - in the case of an existing link, it writes the contents to the current file,
+	 * - in other cases, the operation fails and returns FALSE.
+	 *
+	 * @param array $info XML-Array containing the information to write to the file (eyeInfo) or link (eyeLink)
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public function setInfo($info) {
+		if ($this->isLink()) {
+			return EyeOSFile::putContents(eyeXML('array2xml', array($info)));
+		}
+		elseif($this->isFile()) {
+			$infoFile = $this->getInfoFile();
+			if (is_object($infoFile)) {
+				return $infoFile->putContents(eyeXML('array2xml', array($info)));
+			}
+		}
+		return false;	//TODO: exception
+	}
+		
+	//###############################################################################
+	//			LocalFile OVERLOADED METHODS
+	//###############################################################################
+	
+	/*
+	public function canRead() {
+		TODO
+	}
+	public function canWrite() {
+		TODO
+	}*/
+	
+	public function copyFrom(AbstractFile $file, $overwrite=true) {
+		if ($this->isDirectory() && (!$file->isDirectory() || $this->getName() != $file->getName())) {
+			if ($this->getName() != '/' && $file->getName() != '/') {
+				return $this->getChildFile($file->getName())->copyFrom($file, $overwrite);
+			}
+		}
+		if ($this->exists() && !$overwrite) {
+			throw new Exception('EyeOSVirtualFile->copyFrom(): File "'.$this->path.'" exists but overwrite option is not enabled');
+		}
+		
+		if ($file->isFile()) {
+			$this->createNewFile(true);
+			return parent::copyFrom($file, $overwrite);
+		}
+		elseif($file->isLink()) {
+			return $this->createNewLink($file->getLinkTarget());
+		}
+		elseif($file->isDirectory()) {
+			return parent::copyFrom($file, $overwrite);
+		}
+		else {
+			throw new Exception('EyeOSVirtualFile->copyFrom(): The source file does not exist "'.$file->path.'"');
+		}
+		return true;
+	}
+	
+	public function copyTo(AbstractFile $file, $overwrite=true) {
+		if ($this->isLink() && (get_class($file) != get_class($this))) {
+			throw new Exception('EyeOSVirtualFile->copyTo(): Cannot copy an eyeOS link outside of the virtual filesystem for link "'.$this->path.'"');
+		}
+		return $file->copyFrom($this, $overwrite);
+	}
+	
+	/**
+	 * @param boolean $overwrite Set to TRUE to try overwriting the file if it already exists
+	 * @return boolean
+	 */
+	public function createNewFile($overwrite=false) {
+		if ($this->exists()) {
+			if ($overwrite) {
+				$this->delete();
+			}
+			else {
+				throw new Exception('EyeOSVirtualFile->createNewFile(): File "'.$this->path.'" exists but overwrite option is not enabled');
+			}
+		}
+		if (!self::checkForbiddenChars($this->getName())) {
+			throw new Exception('EyeOSVirtualFile->createNewFile(): Unable to create file "'.$this->path.'", illegal characters found');
+		}
+		if (!self::checkFilenameLength($this->getName())) {
+			throw new Exception('EyeOSVirtualFile->createNewFile(): Unable to create file "'.$this->path.'", filename too long');
+		}
+		$tmp = self::generateFilename(self::getVirtualFilename($this->path));
+		$this->path = $tmp[0];
+		
+		try {
+			parent::createNewFile();
+		}
+		catch(Exception $e) {
+			throw new Exception('EyeOSVirtualFile->createNewFile(): Error occured while trying to create file "'.$this->path.'"'
+								."\n --- ".$e->getMessage());
+		}
+		$this->virtualInfoFile = new EyeOSVirtualInfoFile($tmp[1]);
+		try {
+			$this->virtualInfoFile->createNewFile();
+		}
+		catch(Exception $e) {
+			$this->delete();
+			throw new Exception('EyeOSVirtualFile->createNewFile(): Error occured while trying to create INFO file for "'.$this->path.'"'
+								."\n --- ".$e->getMessage());
+		}
+		$filename = utf8_basename($this->getName());
+		global $currentUser;
+		$time = time();
+		
+		$info = array(
+			'eyeFile' => array(
+				array(
+					'filename' => array($filename),
+					'author' => array($currentUser),
+					'created' => array($time),
+					'creationapp' => array('')					//TODO
+				)
+			)
+		);
+		$info = eyeXML('array2xml', array($info));
+		try {
+			$this->virtualInfoFile->putContents($info);
+			return true;
+		}
+		catch(Exception $e) {
+			$this->virtualInfoFile->delete();
+			$this->delete();
+			throw new Exception('EyeOSVirtualFile->createNewFile(): Unable to write content to INFO file for "'.$this->path.'"'
+								."\n --- ".$e->getMessage());
+		}
+		return true;
+	}
+	
+	/**
+	 * @param AbstractFile $target The target file the link will point to
+	 * @param boolean $overwrite
+	 * @return boolean
+	 */
+	public function createNewLink(AbstractFile $target, $overwrite=false) {
+		if ($this->exists()) {
+			if ($overwrite) {
+				$this->delete();
+			}
+			else {
+				throw new Exception('EyeOSVirtualFile->createNewLink(): Link "'.$this->path.'" exists but overwrite option is not enabled');
+			}
+		}
+		if (!self::checkForbiddenChars($this->getName())) {
+			throw new Exception('EyeOSVirtualFile->createNewFile(): Unable to create file "'.$this->path.'", illegal characters found');
+		}
+		if (!self::checkFilenameLength($this->getName())) {
+			throw new Exception('EyeOSVirtualFile->createNewLink(): Unable to create link "'.$this->path.'", filename too long');
+		}
+		if (pathinfo($this->path, PATHINFO_EXTENSION) != EYEOS_LINK_EXT) {
+			$this->path .= '.'.EYEOS_LINK_EXT;
+		}
+		try {
+			parent::createNewFile($overwrite);
+			$info = array(
+				'eyeLink' => array(
+					array('content' => array($target->getAbsolutePath()))
+				)
+			);
+			$this->setInfo($info);
+		}
+		catch(Exception $e){
+			throw new Exception('EyeOSVirtualFile->createNewLink(): An error occured during link creation "'.$this->path.'"'
+								."\n --- ".$e->getMessage());
+		}
+		return true;
+	}
+	
+	public function delete($recursive=false, $onlyContents=false) {
+		if ($this->isFile()) {
+			try {
+				$infoFile = $this->getInfoFile();
+				if (is_object($infoFile)) {
+					$infoFile->delete();
+				}
+				else {
+					throw new Exception('EyeOSVirtualFile->delete(): The INFO file does not seem to exist for "'.$this->path.'": unconsistent state of the filesystem detected');
+				}
+			}
+			catch(Exception $e) {
+				throw new Exception('EyeOSVirtualFile->delete(): Unable to delete INFO file for "'.$this->path.'"'
+									."\n --- ".$e->getMessage());
+			}
+		}
+		return parent::delete($recursive, $onlyContents);
+	}
+	
+	public function exists($forceCheck=false) {
+		if ($forceCheck) {
+			self::clearCache();
+		}
+		return $this->isDirectory() || $this->isFile() || $this->isLink();
+	}
+	
+	/**
+	 * The object returned will either represent a file located in the directory if the current
+	 * file exists and is a directory, or a file located in the same directory as the current
+	 * file otherwise.
+	 * @param string $fileName The name of the file
+	 * @return AbstractFile
+	 */
+	public function getChildFile($fileName, $params=null) {
+		if ($this->isDirectory()) {
+			$filePath = $this->getAbsolutePath().'/'.$fileName;
+		}
+		else {
+			$filePath = $this->getParentPath().'/'.$fileName;
+		}
+		return FSIService::getInstance()->createFile($filePath, $params);
+	}
+	
+	public function getContents() {
+		if ($this->isLink()) {
+			$targetFile = $this->getLinkTarget();
+			if ($targetFile) {
+				return $targetFile->getContents();
+			}
+			return false;	//TODO: exception
+		}
+		$this->preparePath();
+		return parent::getContents();
+	}
+	
+	public function getExtension() {
+		return pathinfo(self::getVirtualFilename($this->path), PATHINFO_EXTENSION);
+	}
+	
+	public function getLinkTarget() {
+		if ($this->isLink()) {
+			$linkInfo = $this->getInfo();
+			if ($linkInfo) {
+				try {
+					//$targetFile = VirtualPathManager::createFile($linkInfo['eyeLink'][0]['content'][0]);
+					$targetFile = FSIService::getInstance()->createFile($linkInfo['eyeLink'][0]['content'][0]);
+				}
+				catch(Exception $e) {
+					return false;	//TODO: exception
+				}
+				return $targetFile;
+			}
+		}
+		return false;	//TODO: exception
+	}
+	
+	public function getName() {
+		return pathinfo(self::getVirtualFilename($this->path), PATHINFO_BASENAME);
+	}
+	
+	/**
+	 * @return LocalFile The file corresponding to the file's parent directory
+	 */
+	public function getParentFile() {
+		//return VirtualPathManager::createFile($this->getParentPath());
+		return FSIService::getInstance()->createFile($this->getParentPath());
+	}
+	
+	//TODO?
+	//public function getPermissions($octal=true) {}
+	
+	public function getSize($recursive=false) {
+		$this->preparePath();
+		return parent::getSize($recursive);
+	}
+	
+	public function getURLComponents() {
+		$this->preparePath();
+		return parent::getURLComponents();
+	}
+	
+	public function isFile() {
+		$filename = $this->getName();
+		if (!self::checkForbiddenChars($filename)) {
+			throw new Exception('EyeOSVirtualFile->isFile(): Unable to check file "'.$this->path.'", illegal characters found');
+		}
+		$globFilter = $filename.'_*.'.EYEOS_FILE_EXT;
+		$filesList = AdvancedPathLib::glob($this->getParentPath(), $globFilter);
+		if (count($filesList) > 0) {
+			return true;
+		}
+		return false;
+	}
+	
+	public function isLink() {
+		return parent::exists() && parent::getExtension() == EYEOS_LINK_EXT;
+	}
+	
+	public function listFiles($pattern='*', $flags=AdvancedPathLib::GLOB_NORMAL) {
+		if ($this->isDirectory()) {
+			$dir = $this;
+		}
+		else {
+			$dir = $this->getParentFile();
+		}
+		$dirPath = $dir->getAbsolutePath();
+		
+		//retrieve dirs
+		$dirsPattern = $pattern;
+		try {
+			$dirsOnly = AdvancedPathLib::glob($dirPath, $dirsPattern, $flags | AdvancedPathLib::GLOB_ONLY_DIR | AdvancedPathLib::GLOB_RETURN_SIMPLE_PATH);
+			natsort($dirsOnly);
+		}	
+		catch(Exception $e) {
+			throw new Exception('EyeOSVirtualFile->listFiles(): Unable to list dirs in directory "'.$dirPath.'"'
+								."\n --- ".$e->getMessage());
+		}
+		
+		//retrieve files & links list
+		$filesPattern = $pattern.'_*.'.EYEOS_FILE_EXT;
+		$linksPattern = $pattern.'.'.EYEOS_LINK_EXT;
+		try {
+			$filesAndDirs = AdvancedPathLib::glob($dirPath, $filesPattern, $flags);
+			$linksAndDirs = AdvancedPathLib::glob($dirPath, $linksPattern, $flags);
+			$filesAndDirs = array_merge($filesAndDirs, $linksAndDirs);
+			natsort($filesAndDirs);
+		}
+		catch(Exception $e) {
+			throw new Exception('EyeOSVirtualFile->listFiles(): Unable to list files in directory "'.$dirPath.'"'
+								."\n --- ".$e->getMessage());
+		}
+		
+		$files = array();
+		$registeredMountPoints = service_mnt_getMountPointsList($dir->getPathFromRoot());
+		foreach($dirsOnly as $dirPath) {
+			if (in_array($dirPath, $registeredMountPoints)) {
+				$mountPointFile = FSIService::getInstance()->createFile($dirPath);
+				if (!is_null($mountPointFile)) {
+					$files[] = $mountPointFile;
+				}
+			}
+			else {
+				$files[] = new EyeOSVirtualFile($dirPath);
+			}
+		}
+		foreach($filesAndDirs as $filePath) {
+			$file = new EyeOSVirtualFile($filePath);
+			if ($file->isFile() || $file->isLink()) {
+				$files[] = $file;
+			}
+		}
+		if (! ($flags & AdvancedPathLib::GLOB_DIR_FIRST)) {
+			usort($files, 'EyeOSVirtualFile::compareFilesAlphabetically');
+		}
+		return $files;
+	}
+	
+	public function mkdir($mode=0777) {
+		if ($this->isFile()) {
+			return false;	//TODO: exception
+		}
+		if (!self::checkForbiddenChars($this->getName())) {
+			throw new Exception('EyeOSVirtualFile->mkdir(): Unable to create directory "'.$this->path.'", illegal characters found');
+		}
+		return parent::mkdir($mode);
+	}
+	
+	public function mkdirs($mode=0777) {
+		if ($this->isFile()) {
+			return false;	//TODO: exception
+		}
+		if (!self::checkForbiddenChars($this->getName())) {
+			throw new Exception('EyeOSVirtualFile->mkdirs(): Unable to create directory "'.$this->path.'", illegal characters found');
+		}
+		return parent::mkdirs($mode);
+	}
+	
+	public function moveTo(AbstractFile $file) {
+		if ($this->isLink() && (get_class($file) != get_class($this))) {
+			throw new Exception('EyeOSVirtualFile->moveTo(): Cannot move an eyeOS link outside of the virtual filesystem for link "'.$this->path.'"');
+		}
+		return parent::moveTo($file);
+	}
+	
+	public function putContents($data) {
+		if ($this->isLink()) {
+			$targetFile = $this->getLinkTarget();
+			if ($targetFile) {
+				return $targetFile->putContents($data);
+			}
+			return false;	//TODO: exception
+		}
+		$this->preparePath();
+		return parent::putContents($data);
+	}
+	
+	public function renameTo($newName) {		
+		if (!$newName || $newName == $this->getName()) {
+			return true;
+		}
+		if (!self::checkForbiddenChars($newName)) {
+			throw new Exception('EyeOSVirtualFile->renameTo(): Unable to rename "'.$this->path.'", illegal characters found in new name "'.$newName.'"');
+		}
+		if (!$this->exists()) {
+			return parent::renameTo($newName);
+		}
+		if ($this->isLink()) {
+			$newName = str_replace('.'.EYEOS_LINK_EXT, '', $newName);		//FIXME?
+			return parent::renameTo($newName.'.'.EYEOS_LINK_EXT);
+		}
+		
+		$oldPath = $this->path;
+		$realFilePath = $this->getRealPath();
+		$realFileName = utf8_basename($realFilePath);
+		$newRealPath = str_replace($this->getName(), $newName, $realFilePath);
+		$newRealName = utf8_basename($newRealPath);
+		$newInfoRealName = preg_replace('/^.+(_[0-9a-f]{32}\.)'.EYEOS_FILE_EXT.'$/i', $newName.'${1}'.EYEOS_INFO_EXT, $realFileName);
+		$this->autoSetInfoFile();	//before changing the internal path
+		try {
+			//temporary path change for parent method
+			$this->path = $realFilePath;
+			parent::renameTo($newRealName);
+		}
+		catch(Exception $e) {
+			$this->path = $oldPath;
+			throw new Exception('EyeOSVirtualFile->renameTo(): Unable to rename file "'.$oldPath.'"'
+								."\n --- ".$e->getMessage());
+		}
+		try {
+			$this->getInfoFile()->renameTo($newInfoRealName);
+		}
+		catch(Exception $e) {
+			throw new Exception('EyeOSVirtualFile->renameTo(): Unable to rename INFO file "'.$this->getInfoFile()->getName().'"'
+								."\n --- ".$e->getMessage());
+		}
+		try {
+			$info = $this->getInfo();
+			$info['eyeFile'][0]['filename'][0] = $newName;
+			$this->setInfo($info);
+		}
+		catch(Exception $e) {
+			throw new Exception('EyeOSVirtualFile->renameTo(): Unable to update INFO file "'.$this->getInfoFile()->getName().'"'
+								."\n --- ".$e->getMessage());
+		}
+		//setting back new virtual path
+		$this->path = self::getVirtualFilename($newRealPath);
+		return true;
+	}
+	
+	
+	//############################################################################
+	//			STATIC METHODS
+	//############################################################################
+	
+	/**
+	 * @param string $filename
+	 * @return boolean
+	 */
+	protected static function checkFilenameLength($filename) {
+		if (pathinfo($filename, PATHINFO_EXTENSION) == EYEOS_LINK_EXT) {
+			return utf8_strlen(utf8_basename($filename)) <= (EYEOSVIRTUALFILE_FILENAME_MAXLENGTH + utf8_strlen(EYEOS_LINK_EXT));
+		}
+		return utf8_strlen(utf8_basename($filename)) <= EYEOSVIRTUALFILE_FILENAME_MAXLENGTH;
+	}
+	
+	/**
+	 * @param string $filename
+	 * @return boolean
+	 */
+	protected static function checkForbiddenChars($filename) {
+		foreach(self::$EYEOSVIRTUALFILE_BLACKCHARS as $char){
+			if(utf8_strpos($filename, $char) !== false){			
+				return false;
+			}
+		}
+		return true;
+	}
+	
+	/**
+	 * @param EyeOSVirtualFile $a
+	 * @param EyeOSVirtualFile $b
+	 * @return int
+	 */
+	protected static function compareFilesAlphabetically($a, $b) {
+		return strcasecmp($a->getName() ,$b->getName());
+	}
+	
+	/**
+	 *
+	 * @param $path string
+	 * @return array(0 => real_file_path, 1 => real_infofile_path)
+	 */
+	protected static function generateFilename($path) {
+		$md5Id = md5(uniqid());
+		return array(
+			$path.'_'.$md5Id.'.'.EYEOS_FILE_EXT,
+			$path.'_'.$md5Id.'.'.EYEOS_INFO_EXT
+		);
+	}
+
+	protected static function getVirtualFilename($filename) {
+		if (preg_match('/^(.+)_[0-9a-f]{32}\.'.EYEOS_FILE_EXT.'$/i', $filename, $matches)) {
+			return $matches[1];
+		}
+		return $filename;
+	}
+	
+	protected static function removeRealnameFromPath($path) {
+		$urlParts = AdvancedPathLib::parse_url($path);
+		$urlParts['path'] = AdvancedPathLib::dirname($urlParts['path']).'/'.self::getVirtualFilename(utf8_basename($urlParts['path']));
+		return AdvancedPathLib::buildURL($urlParts);
+		
+	}
+}
+?>

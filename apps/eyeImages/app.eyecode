@@ -1,0 +1,125 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              1.7
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+function eyeImages_run($params=null) {
+	global $myPid, $checknum;
+	
+	//file path
+	if (!is_array($params) || !isset($params[0])) {
+		proc('end');
+		return;
+	}
+	else {
+		$file = $params[0];
+	}
+	
+	//fullscreen on/off
+	if(isset($params[1]) && $params[1] == 1) {
+		$fullscreen = 1;
+		$width = $_SESSION['SCREEN']['width'];
+		$height = $_SESSION['SCREEN']['height'];
+		$wintype = FIXED_WINDOW;
+	}
+	else {
+		$fullscreen = 0;
+		$width = $info[0]+30;
+		$height = $info[1]+128;
+		if($width < 200) {
+			$width = 200;
+		}
+		if($height < 210) {
+			$height = 210;
+		}
+		$wintype = NORESIZE_WINDOW;
+	}
+	
+	$myWindow = new Window(array(
+		'name'=>'eyeImages_WND',
+		'father'=>'eyeApps',
+		'cent'=>1,
+		'title'=>'View Images',
+		'width'=>$width,
+		'height'=>$height,
+		'type' => $wintype,
+		'x' => 0,
+		'y' => 0,
+		'savePosition' => 1
+	));
+	$myWindow->show();
+	
+	if($fullscreen) {
+		eyex('rawjs',array('js' => 'document.getElementById("'.$myPid.'_eyeImages_WND").style.top = "0px"; document.getElementById("'.$myPid.'_eyeImages_WND").style.left = "0px";'));
+	}
+	
+	$myFrame = new Iframe(array(
+		'name'=>'image_IFR',
+		'father'=>'eyeImages_WND_Content',
+		'x'=>5,
+		'y'=>73,
+		'height'=>$myWindow->height-98,
+		'width'=>$myWindow->width-10,
+		'scroll'=>1));
+	$myFrame->show();
+	
+	$myToolbar = new Toolbar(array(
+		'name'=>'toolbar_TLB',
+		'father'=>'eyeImages_WND_Content'
+	));
+	$myToolbar->show();
+	$myToolbar->addItem(
+		'previous',
+		'index.php?version='.EXTERN_CACHE_VERSION.'&theme=1&extern=images/toolbar/previous.png',
+		'Previous'
+	);
+	$myToolbar->addItem(
+		'next',
+		'index.php?version='.EXTERN_CACHE_VERSION.'&theme=1&extern=images/toolbar/next.png',
+		'Next'
+	);
+	$myToolbar->addItem(
+		'fullscreen',
+		'index.php?version='.EXTERN_CACHE_VERSION.'&theme=1&extern=images/toolbar/fullScreen.png',
+		'Fullscreen'
+	);
+
+	$myHidden = new Hidden(array(
+		'name'=>'imagePath_HID',
+		'father'=>'eyeImages_WND',
+		'text'=>$file
+	));
+	eyeWidgets('serialize',array($myHidden));
+	
+	$myHidden2 = new Hidden(array(
+		'name'=>'fullscreen_HID',
+		'text'=>$fullscreen
+	));
+	eyeWidgets('serialize',array($myHidden2));
+	
+	eyeX('rawjs',array('js' => 'sendMsg('.$checknum.',"loadImage",eyeParam("path", "'.$file.'"));'));
+}
+
+function eyeImages_end($params=null) {
+	reqLib('eyeWidgets','unserialize');
+}
+
+?>

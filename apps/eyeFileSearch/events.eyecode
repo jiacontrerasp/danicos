@@ -1,0 +1,540 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+require_once('./system/services/vfs/file/main'.EYE_CODE_EXTENSION);
+
+define('EYEFILESEARCH_REQUEST_DELAY', 5);
+
+function eyeFileSearch_on_go_BTN() {
+	global $checknum;
+	
+	$pattern = $GLOBALS['search_TXTBOX']->text;
+	if (! $pattern) {
+		eyeX('messageBox', array('content' => 'Please enter search criteria'));
+		return;
+	}
+	try {
+		$folder = FSIService::getInstance()->createFile($GLOBALS['path_TXTBOX']->text);
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+		firebugLog($e->getMessage());
+		return;
+	}
+	if ($folder === false) {
+		eyeX('messageBox', array('content' => 'Invalid URL'));
+		return;
+	}
+	
+	clearFiles();
+	try {
+		$GLOBALS['path_TXTBOX']->setText(FSIService::getInstance()->getVirtualPath($folder->getAbsolutePath()));
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => 'Error resolving path'));
+		return;
+	}
+	$searchParams = array(
+		'pattern' => $GLOBALS['strictPattern_CHKBOX']->checked? $pattern : '*'.$pattern.'*',
+		'dirStack' => array($folder),
+		'startTime' => microtime(true),
+		'nbResults' => 0,
+		'step' => 0
+	);
+	$id = search_storeSearchState($searchParams);
+	
+	$GLOBALS['search_TXTBOX']->disable();
+	$GLOBALS['path_TXTBOX']->disable();
+	$GLOBALS['go_BTN']->disable();
+	$GLOBALS['caseInsensitive_CHKBOX']->disable();
+	$GLOBALS['onlyDir_CHKBOX']->disable();
+	$GLOBALS['strictPattern_CHKBOX']->disable();
+	$GLOBALS['cancelSearch_HID']->setText(0);
+	
+	$GLOBALS['status_LBL']->setText('Search in progress...');
+	$GLOBALS['progressBar_IMG']->setUrl('index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/progressbar/progressbar_indeterminate_0.png');
+	createCancelDialog();
+	eyeX('rawjs', array('js' => 'sendMsg('.$checknum.',"resumeSearch",eyeParam("id", "'.$id.'")+'.$GLOBALS['cancelSearch_HID']->getSyncString().')'));
+}
+
+function eyeFileSearch_on_resumeSearch($params=null) {
+	if (!is_array($params)) {
+		eyeX('messageBox', array('content' => 'Error resuming search'));
+		return;
+	}
+	$searchParams = search_loadSearchState($params['id'][0]);
+	if ($GLOBALS['cancelSearch_HID']->text == 1) {
+		$GLOBALS['search_TXTBOX']->enable();
+		$GLOBALS['path_TXTBOX']->enable();
+		$GLOBALS['go_BTN']->enable();
+		$GLOBALS['caseInsensitive_CHKBOX']->enable();
+		$GLOBALS['onlyDir_CHKBOX']->enable();
+		$GLOBALS['strictPattern_CHKBOX']->enable();
+		$GLOBALS['cancelSearch_HID']->setText(0);
+		closeCancelDialog();
+		
+		$GLOBALS['status_LBL']->setText('Search canceled by user - '.$searchParams['nbResults'].' result(s) found');
+		$GLOBALS['progressBar_IMG']->setUrl('index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/progressbar/progressbar_indeterminate_7.png');
+		search_deleteSearchState($params['id'][0]);
+	}
+	else {
+		$files = searchFiles(&$searchParams);
+		displayResults($searchParams, $files);
+	}
+}
+
+function eyeFileSearch_on_filesDblClick($params=null) {
+	if (! $GLOBALS['files_TAB']->selected) {
+		eyeX('messageBox', array('content' => 'Error selecting file'));
+		return;
+	}
+	$selectedFile = unserialize(urldecode($GLOBALS['files_TAB']->selected));
+	if (! is_object($selectedFile)) {
+		eyeX('messageBox', array('content' => 'Error selecting file'));
+		return;
+	}
+	if (!$selectedFile->isDirectory()) {
+		proc('launch', array('eyeFileBrowser', array($selectedFile->getParentPath())));
+	}
+	else {
+		proc('launch', array('eyeFileBrowser', array($selectedFile->getPath())));
+	}
+}
+
+function eyeFileSearch_on_browse_IMG($params=null) {
+	eyeX('messageBox', array('content' => 'Not implemented'));
+	return;
+}
+
+function eyeFileSearch_on_reload_ITM($params=null) {
+	$GLOBALS['search_TXTBOX']->setText($GLOBALS['search_TXTBOX']->text);
+	$GLOBALS['path_TXTBOX']->setText($GLOBALS['path_TXTBOX']->text);
+	$GLOBALS['caseInsensitive_CHKBOX']->checked? $GLOBALS['caseInsensitive_CHKBOX']->check() : $GLOBALS['caseInsensitive_CHKBOX']->uncheck();
+	$GLOBALS['onlyDir_CHKBOX']->checked? $GLOBALS['onlyDir_CHKBOX']->check() : $GLOBALS['onlyDir_CHKBOX']->uncheck(); 
+	
+	eyeFileSearch_on_go_BTN();
+}
+
+function eyeFileSearch_on_properties_ITM($params=null) {
+	if (! $GLOBALS['files_TAB']->selected) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	$selectedFile = unserialize(urldecode($GLOBALS['files_TAB']->selected));
+	if (! is_object($selectedFile)) {
+		eyeX('messageBox', array('content' => 'Select a file first'));
+		return;
+	}
+	createFilePropertiesDialog($selectedFile);
+}
+
+//##########################################################################################################
+//##########################################################################################################
+//##########################################################################################################
+
+function searchFiles(&$searchParams) {	
+	if (!is_array($searchParams)) {
+		eyeX('messageBox', array('content' => 'searchFiles(): Wrong parameter'));
+		return;
+	}
+	$pattern = $searchParams['pattern'];
+	$dirStack = $searchParams['dirStack'];
+	if (!is_string($pattern) || !is_array($dirStack)) {
+		eyeX('messageBox', array('content' => 'searchFiles(): Wrong parameter'));
+		return;
+	}
+	
+	$flags = AdvancedPathLib::GLOB_NORMAL;
+	$flags |= ($GLOBALS['caseInsensitive_CHKBOX']->checked)? AdvancedPathLib::GLOB_CASEINSENSITIVE : 0;
+	$flags |= ($GLOBALS['onlyDir_CHKBOX']->checked)? AdvancedPathLib::GLOB_ONLY_DIR : 0;
+	
+	$results = array();
+	$startTime = microtime(true);
+	$pauseSearch = false;
+	while (!empty($dirStack) && !$pauseSearch) {
+		$currentDir = array_pop($dirStack);
+		try {
+			$results = array_merge($results, $currentDir->listFiles($pattern, $flags));
+		} catch (Exception $e) {
+			eyeX('messageBox', array('content' => 'Unable to list files: '.$e->getMessage()));
+			firebugLog($e->getMessage());
+		}
+		try {
+			$subDirs = $currentDir->listFiles('*', AdvancedPathLib::GLOB_ONLY_DIR);
+			//firebugLog($subDirs);
+		} catch (Exception $e) {
+			eyeX('messageBox', array('content' => 'Unable to list dirs: '.$e->getMessage()));
+			firebugLog($e->getMessage());
+		}
+		$dirStack = array_merge($dirStack, array_reverse($subDirs));
+		
+		if (microtime(true) - $startTime > EYEFILESEARCH_REQUEST_DELAY) {
+			$pauseSearch = true;
+			$searchParams['dirStack'] = $dirStack;
+		}
+	}
+	if (!$pauseSearch) {
+		$searchParams['endTime'] = microtime(true);
+	}
+	return $results;
+}
+
+function displayResults($searchParams, $files) {	
+	global $myPid, $checknum;
+	
+	if (!is_array($files)) {
+		eyeX('messageBox', array('content' => 'searchFiles(): Wrong parameter'));
+		return;
+	}
+	
+	$searchParams['nbResults'] += count($files);
+	$searchParams['step']++;
+	$id = search_storeSearchState($searchParams);
+	
+	//search complete
+	if (isset($searchParams['endTime'])) {
+		$GLOBALS['search_TXTBOX']->enable();
+		$GLOBALS['path_TXTBOX']->enable();
+		$GLOBALS['go_BTN']->enable();
+		$GLOBALS['caseInsensitive_CHKBOX']->enable();
+		$GLOBALS['onlyDir_CHKBOX']->enable();
+		$GLOBALS['strictPattern_CHKBOX']->enable();
+		$GLOBALS['cancelSearch_HID']->setText(0);
+		closeCancelDialog();
+		
+		$time = $searchParams['endTime'] - $searchParams['startTime'];
+		$GLOBALS['status_LBL']->setText($searchParams['nbResults'].' result(s) found in '.(round($time, 2)).' second(s)');
+		$GLOBALS['progressBar_IMG']->setUrl('index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/progressbar/progressbar_indeterminate_7.png');
+		search_deleteSearchState($id);
+	}
+	//search incomplete (update the browser)
+	else {
+		$GLOBALS['status_LBL']->setText('Search in progress... ('.$searchParams['nbResults'].' result(s) so far)');
+		$progressBarImageId = (($searchParams['step']-1) % 6) + 1;
+		$GLOBALS['progressBar_IMG']->setUrl('index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/progressbar/progressbar_indeterminate_'.$progressBarImageId.'.png');
+		eyeX('rawjs', array('js' => 'sendMsg('.$checknum.',"resumeSearch",eyeParam("id", "'.$id.'")+'.$GLOBALS['cancelSearch_HID']->getSyncString().')'));
+	}
+	
+	foreach($files as $file) {
+		if ($file->isDirectory()) {
+			$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/16x16/folder.png';
+		}
+		elseif ($file->isLink()) {
+			if (method_exists($file, 'getInfo')) {
+				$linkInfo = $file->getInfo();
+				if ($linkInfo && ($iconName = $linkInfo['eyeLink'][0]['icon'][0])) {
+					$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/48x48/'.$iconName.'.png';
+				}
+				else {
+					$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/16x16/link.png';
+				}
+			}
+			else {
+				$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/16x16/link.png';
+			}
+		}
+		else {
+			$urlIcon = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/16x16/file.png';
+		}
+		
+		$iconName = 'fileIcon_'.md5(uniqid());
+		$iconId = $myPid.'_'.$iconName;
+		
+		//fetching & formatting file's informations
+		try {
+			//data sent and displayed in the browser must be UTF-8 so we convert filenames if needed
+			if (mb_detect_encoding($file->getName(), 'ISO-8859-1, UTF-8') != 'UTF-8') {
+				$filename = utf8_encode($file->getName());
+			}
+			else {
+				$filename = $file->getName();
+			}
+			if ($file->isDirectory()) {
+				$size = ' ';
+				$extension = ' ';
+			}
+			else {
+				$size = $file->getSize();
+				$extension = $file->getExtension()? strtoupper($file->getExtension()) : ' ';
+			}
+			//data sent and displayed in the browser must be UTF-8 so we convert paths if needed
+			$location = FSIService::getInstance()->getVirtualPath($file->getParentPath());
+			if (mb_detect_encoding($location, 'ISO-8859-1, UTF-8') != 'UTF-8') {
+				$location = utf8_encode($location);
+			}			
+		}
+		catch(Exception $e) {
+			eyeX('messageBox', array('content' => 'Error processing file'));
+			firebugLog($e->getMessage());
+			continue;
+		}
+		
+		$GLOBALS['files_TAB']->addRow(array(
+			'<img src="'.$urlIcon.'" id="'.$iconId.'" style="width: 16px; height:16px;" />',
+			$filename,
+			$size,
+			$extension,
+			$location,
+			urlencode(serialize($file))
+		));
+	}
+}
+
+function clearFiles() {
+	global $myPid;
+	
+	//remove previous table
+	if (is_object($GLOBALS['files_TAB'])) {
+		@$GLOBALS['files_TAB']->remove();
+	}
+	
+	//create and add new table
+	$filesTable = new Sortabletable(array(
+		'name' => 'files_TAB',
+		'father' => 'eyeFileSearch_WND_Content',
+		'x' => 0,
+		'y' => 85,
+		'width' => $GLOBALS['eyeFileSearch_WND']->width - 4,
+		'height' => $GLOBALS['eyeFileSearch_WND']->height - 132,
+		'sortypes' => array('Html','String','Number','String','String','Hidden'),
+		'master' => 5,
+		'theader' => array(' ','Filename','Filesize','Extension','Location','id'),
+		'dblsignal' => 'filesDblClick'
+	));
+	$filesTable->show();
+	$filesTable->setCss(array('white-space' => 'nowrap'));
+	return $filesTable;
+}
+
+function search_storeSearchState($searchParams) {
+	$tmpUserDir = um('getCurrentUserDir').'/'.EYEOS_TMP_DIR;
+	if (!isset($searchParams['id'])) {
+		$searchParams['id'] = md5(uniqid());
+	}
+	$tmpFilename = 'eyeFileSearch_'.$searchParams['id'];
+	vfs('real_putFileContent', array($tmpUserDir.'/'.$tmpFilename, base64_encode(serialize($searchParams))));
+	return $searchParams['id'];
+}
+
+function search_loadSearchState($id) {
+	$tmpUserDir = um('getCurrentUserDir').'/'.EYEOS_TMP_DIR;
+	$tmpFilename = 'eyeFileSearch_'.$id;
+	return unserialize(base64_decode(vfs('real_getFileContent', array($tmpUserDir.'/'.$tmpFilename))));
+}
+
+function search_deleteSearchState($id) {
+	$tmpUserDir = um('getCurrentUserDir').'/'.EYEOS_TMP_DIR;
+	$tmpFilename = 'eyeFileSearch_'.$id;
+	return vfs('real_delete', array($tmpUserDir.'/'.$tmpFilename));
+}
+
+function createCancelDialog() {
+	global $myPid;
+	
+	closeCancelDialog();
+	
+	$mainWindow = new Window(array(
+		'name' => 'cancel_DLG',
+		'father' => 'eyeFileSearch_WND',
+		'cent' => 1,
+		'style' => TITLE+NODRAG,
+		'width' => 180,
+		'height' => 60,
+		'title' => 'Search in progress...',
+		'removepid' => 0
+	));
+	$mainWindow->show();
+	
+	/* GO BUTTON */
+	$cancelButton = new Button(array(
+		'name' => 'cancel_BTN',
+		'father' => 'cancel_DLG_Content',
+		'caption' => 'Cancel',
+		'x' => ($mainWindow->width - 100) / 2,
+		'y' => 8,
+		'width' => 100,
+		'enabled' => 1,
+		'disablemsg' => 1
+	));
+	$cancelButton->addEvent('onclick', 'document.getElementById("'.$myPid.'_cancelSearch_HID").value=1; this.innerHTML="Cancelling..."; this.disabled=true;');
+}
+
+function closeCancelDialog() {
+	if (is_object($GLOBALS['cancel_DLG'])) {
+		$GLOBALS['cancel_DLG']->close();
+	}
+}
+
+function createFilePropertiesDialog($file) {
+	if (is_object($GLOBALS['properties_DLG'])) {
+		$GLOBALS['properties_DLG']->close();
+	}
+	
+	$mainWindow = new Window(array(
+		'name' => 'properties_DLG',
+		'father' => 'eyeApps',
+		'cent' => 1,
+		'type' => NOLIST_CLOSE_WINDOW,
+		'width' => 340,
+		'height' => 440,
+		'title' => 'File properties',
+		'removepid' => 0
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'properties_logo_IMG',
+		'father' => 'properties_DLG_Content',
+		'x' => 10,
+		'y' => 10,
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/48x48/i.png'
+	));
+	$logo->show();
+	
+	//FILENAME
+	$filename = new Label(array(
+		'name' => 'properties_filename_LBL',
+		'father' => 'properties_DLG_Content',
+		'x' => 70,
+		'y' => 16,
+		'text' => $file->getName()
+	));
+	$filename->show(0);
+	$filename->setCss(array(
+		'font-size' => '16px',
+		'font-weight' => 'bold',
+		'color' => '#004488',
+		'word-wrap' => 'break-word'
+	));
+	
+	//FILEPATH
+	$filepath = new Label(array(
+		'name' => 'properties_filepath_LBL',
+		'father' => 'properties_DLG_Content',
+		'x' => 70,
+		'y' => 40,
+		'text' => FSIService::getInstance()->getVirtualPath($file)
+	));
+	$filepath->show(0);
+	$filepath->setCss(array(
+		'font-size' => '11px',
+		'color' => '#004488',
+		'word-wrap' => 'break-word'
+	));
+	
+	//LINE
+	$line = new Line(array(
+		'name' => 'properties_line_LIN',
+		'father' => 'properties_DLG_Content',
+		'x' => 10,
+		'y' => 70,
+		'width' => $mainWindow->width -20,
+		'height' => 2
+	));
+	$line->show(0);
+	
+	/* TABLE FOR PROPERTIES LIST */
+	$propTable = new Sortabletable(array(
+		'name' => 'prop_TAB',
+		'father' => 'properties_DLG_Content',
+		'x' => 2,
+		'y' => 80,
+		'width' => $mainWindow->width - 8,
+		'height' => $mainWindow->height - 110,
+		'sortypes' => array('String','String'),
+		'theader' => array('Property','Value')
+	));
+	$propTable->show();
+	
+	try {
+		$propTable->addRow(array('PHP class', get_class($file)));
+		$propTable->addRow(array('Can read', $file->canRead()? 'true' : 'false'));
+		$propTable->addRow(array('Can write', $file->canWrite()? 'true' : 'false'));
+		$propTable->addRow(array('Exists', $file->exists()? 'true' : 'false'));
+		$propTable->addRow(array('Absolute path', $file->getAbsolutePath()));
+		$propTable->addRow(array('Extenstion', $file->getExtension()));
+		$propTable->addRow(array('Name', $file->getName()));
+		$propTable->addRow(array('Parent path', $file->getParentPath()));
+		$propTable->addRow(array('Path', $file->getPath()));
+		$propTable->addRow(array('Path from root', $file->getPathFromRoot()));
+		$propTable->addRow(array('Permissions', $file->getPermissions(false)));
+		$propTable->addRow(array('Size (B)', $file->getSize()));
+		
+		$propTable->addRow(array('URL Components:',' '));
+			$urlParts = $file->getUrlComponents();
+			$propTable->addRow(array('-- scheme', @$urlParts['scheme']));
+			$propTable->addRow(array('-- user', @$urlParts['user']));
+			$propTable->addRow(array('-- pass', @$urlParts['pass']));
+			$propTable->addRow(array('-- host', @$urlParts['host']));
+			$propTable->addRow(array('-- port', @$urlParts['port']));
+			$propTable->addRow(array('-- path', @$urlParts['path']));
+			$propTable->addRow(array('-- query', @$urlParts['query']));
+			$propTable->addRow(array('-- fragment', @$urlParts['fragment']));
+		
+		$propTable->addRow(array('Is directory', $file->isDirectory()? 'true' : 'false' ));
+		$propTable->addRow(array('Is file', $file->isFile()? 'true' : 'false' ));
+		$propTable->addRow(array('Is link', $file->isLink()? 'true' : 'false' ));
+		$propTable->addRow(array('Link target', $file->isLink()? $file->getLinkTarget()->getAbsolutePath() : ' ' ));
+		$propTable->addRow(array('PHP "LocalHackPath"', AdvancedPathLib::getPhpLocalHackPath($file->getAbsolutePath())));
+	}
+	catch(Exception $e) {
+		eyeX('messageBox', array('content' => $e->getMessage()));
+	}
+}
+//----------------------------------------------------------------------------------------------
+function firebugLog($message) {
+	$message = str_replace('"', '\\"', $message);
+	eyeX('rawjs', array('js' => 'console.log("'.print_r($message,true).'")'));
+}
+
+function eyeFileSearch_on_windowResize($params) {
+	$newWidth = intval($params['arg'][0]);
+	$newHeight = intval($params['arg'][1]);
+	
+	//update window properties
+	$GLOBALS['eyeFileSearch_WND']->setWidth($newWidth);
+	$GLOBALS['eyeFileSearch_WND']->setHeight($newHeight);
+	
+	$GLOBALS['search_TXTBOX']->setWidth($newWidth - 272);
+	$GLOBALS['path_TXTBOX']->setWidth($newWidth - 300);
+	$GLOBALS['go_BTN']->setX($newWidth - 52);
+	
+	$GLOBALS['advCriteria_CTNR']->setWidth($newWidth -2);
+	
+	$GLOBALS['files_TAB']->setWidth($newWidth - 4);
+	$GLOBALS['files_TAB']->setHeight($newHeight - 132);
+	
+	$GLOBALS['statusBar_CTNR']->setY($newHeight - 45);
+	$GLOBALS['statusBar_CTNR']->setWidth($newWidth - 2);
+}
+
+function eyeFileSearch_on_Message($params=null){
+	eyeWidgets('updateContent',$params);
+}
+
+function eyeFileSearch_on_Close(){
+	proc('end');
+}
+
+
+?>

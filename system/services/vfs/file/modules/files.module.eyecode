@@ -1,0 +1,64 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+class files_FSIModule extends FSIModule {
+	
+	private static $instance = null;
+	
+	public static function getInstance() {
+		if (is_null(self::$instance)) {
+			self::$instance = new self();
+			self::$instance->load();
+		}
+		return self::$instance;
+	}
+	
+	public function load($params=null) {
+		$this->moduleName = 'files';
+		$this->modulePath = '/';
+	}
+	
+	public function unload() {
+		
+	}
+	
+	/**
+	 * 
+	 * @param array $urlParts
+	 * @param array $params
+	 * @return AbstractFile
+	 */
+	public function createFileFromUrlParts($urlParts, $params=null) {
+		$modules = $this->getSubModules();
+		foreach($modules as $module) {
+			$file = $module->createFileFromUrlParts($urlParts, $params);
+			if (!is_null($file)) {
+				return $file;
+			}
+		}
+		return null;
+	}
+}
+
+?>

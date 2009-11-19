@@ -1,0 +1,441 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+/**
+ * This class extends the EyeOSFile class for ...
+ * 
+ * @author Nanawel
+ * @version 0.2, 13-Apr-2009
+ */
+class EyeOSMountedFile extends EyeOSFile {
+	
+	/**
+	 * @var AbstractFile
+	 */
+	protected $targetFile = null;
+	
+	/**
+	 * @var string
+	 */
+	protected $localRootMountPoint = null;
+	
+	/**
+	 * @var string
+	 */
+	protected $targetRootMountPoint = null;
+	
+	
+	
+	/**
+	 * 
+	 * @param string $path  
+	 * @param array $params 
+	 */
+	public function __construct($path, $params=null) {
+		parent::__construct($path, $params);
+		if (!is_array($params)) {
+			throw new Exception('EyeOSMountedFile->__construct(): Missing params for mounted file "'.$path.'"');
+		}
+		$this->targetRootMountPoint = AdvancedPathLib::getExactURL($params['targetRootMountPoint']);
+		$this->localRootMountPoint = AdvancedPathLib::getExactURL($params['localRootMountPoint']);
+		
+		$thisExactPath = AdvancedPathLib::getExactURL($path);
+		if ($this->localRootMountPoint == $thisExactPath) {
+			$this->statsCache['isRoot'] = true;
+		}
+		else {
+			$this->statsCache['isRoot'] = false;
+		}
+		
+		if ($params['targetFile'] instanceof AbstractFile) {
+			$this->targetFile = $params['targetFile'];
+		}
+		else {
+			$targetFilePath = $this->targetRootMountPoint.self::getMountPointRelativePath($thisExactPath, $this->localRootMountPoint);
+			$this->targetFile = FSIService::getInstance()->createFile($targetFilePath);
+		}
+	}
+	
+	/**
+	 * 
+	 * targetFile->path					= "ftp://my.ftpsite.org/public/folder1/folder2/file1.ext"
+	 * localRootMountPointFile->path	= "./users/jn4/john/files/folder1_ftpsite"
+	 * this->path						= "./users/jn4/john/files/folder1_ftpsite/folder2/file1.ext"
+	 * 
+	 * => getTargetPartOfURL()			= "/folder2/file1.ext"
+	 */
+	protected function getTargetPartOfURL() {
+		if ($this->statsCache['isRoot']) {
+			return '';
+		}
+		return self::getMountPointRelativePath($this->targetFile->getAbsolutePath(), $this->targetRootMountPoint);
+	}
+	
+	protected function isRoot() {
+		if ($this->statsCache['isRoot']) {
+			return true;
+		}
+		return false;
+	}
+	
+	//###############################################################################
+	//			METHODS
+	//###############################################################################
+	
+	/**
+	 * @return boolean TRUE if the file can be read by the current user, FALSE otherwise
+	 */
+	public function canRead() {
+		return $this->targetFile->canRead();
+	}
+	
+	/**
+	 * @return boolean TRUE if the file can be written by the current user, FALSE otherwise
+	 */
+	public function canWrite() {
+		return $this->targetFile->canWrite();
+	}
+	
+	/**
+	 * @param AbstractFile $file The source file to copy from
+	 * @return boolean TRUE if the file has been successfully copied from $file, FALSE otherwise
+	 */
+	public function copyFrom(AbstractFile $file, $overwrite=true) {
+		return $this->targetFile->copyFrom($file, $overwrite);
+	}
+	
+	/**
+	 * @param AbstractFile $file The target file to copy to
+	 * @return boolean TRUE if the file has been successfully copied to $file, FALSE otherwise
+	 */
+	public function copyTo(AbstractFile $file, $overwrite=true) {
+		$destFile = $file;
+		if ($this->isRoot()) {
+			$destFile = $file->getChildFile($this->getName());
+			if ($destFile->exists()) {
+				if (!$destFile->isDirectory()) {
+					if ($overwrite === true) {
+						try {
+							$destFile->delete(true);
+						}
+						catch(Exception $e) {
+							throw new Exception('EyeOSMountedFile->copyTo(): Unable to overwrite destination folder "'.$destFile->path.'"');
+						}
+					}
+					else {
+						throw new Exception('EyeOSMountedFile->copyTo(): File "'.$destFile->path.'" exists but overwrite option is not enabled');
+					}
+				}
+			}
+			if (!$destFile->isDirectory() && !$destFile->mkdir()) {
+				throw new Exception('EyeOSMountedFile->copyTo(): Unable to create destination folder "'.$destFile->path.'", creation failed');
+			}
+		}
+		return $destFile->copyFrom($this->targetFile, $overwrite);
+	}
+	
+	/**
+	 * @param boolean $overwrite Set to TRUE to try overwriting the file if it already exists
+	 * @return boolean TRUE if the file has been successfully created, FALSE otherwise
+	 */
+	public function createNewFile($overwrite=false) {
+		if ($this->isRoot()) {
+			return false;
+		}
+		return $this->targetFile->createNewFile($overwrite);
+	}
+	
+	/**
+	 * @param AbstractFile $target The target file the link will point to
+	 * @param boolean $overwrite
+	 * @return boolean TRUE if the link has been successfully created, FALSE otherwise
+	 */
+	public function createNewLink(AbstractFile $target, $overwrite=false) {
+		if ($this->isRoot()) {
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->createNewLink($target, $overwrite);
+	}
+	
+	/**
+	 * @param boolean $recursive
+	 * @param boolean $onlyContents In the case of a directory, only delete the files it contains if TRUE
+	 * or the entire directory otherwise
+	 * @return boolean TRUE if the file has been successfully deleted, FALSE otherwise
+	 */
+	public function delete($recursive=false, $onlyContents=false) {
+		if ($this->isRoot()) {
+			return false;	//allow deletion of the root directory?
+		}
+		return $this->targetFile->delete($recursive, $onlyContents);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file/folder/link exists, FALSE otherwise
+	 */
+	public function exists($forceCheck=false) {
+		return $this->targetFile->exists($forceCheck);
+	}
+	
+	/**
+	 * @return string
+	 */
+	public function getAbsolutePath() {
+		return $this->localRootMountPoint.AdvancedPathLib::unifyPath($this->getTargetPartOfURL());
+	}
+	
+	/**
+	 * The object returned will either represent a file located in the directory if the current
+	 * file exists and is a directory, or a file located in the same directory as the current
+	 * file otherwise.
+	 * @param string $fileName The name of the file
+	 * @return AbstractFile
+	 */
+	public function getChildFile($fileName, $params=null) {
+		$params['targetFile'] = null;
+		$params['targetRootMountPoint'] = $this->targetRootMountPoint;
+		$params['localRootMountPoint'] = $this->localRootMountPoint;
+		return parent::getChildFile($fileName, $params);
+	}
+	
+	/**
+	 * NOTE: in the case of a link, the data is read from its target.
+	 * @return mixed The content of the file or FALSE if an error occured
+	 */
+	public function getContents() {
+		if ($this->isRoot()) {
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->getContents();
+	}
+	
+	/**
+	 * @return string The extension of the file
+	 */
+	/*public function getExtension() {
+		if ($this->isRoot()) {
+			return '';
+		}
+		return parent::getExtension();
+	}*/
+	
+	/**
+	 * @return AbstractFile The target file pointed by the link, or FALSE if an error occured
+	 */
+	public function getLinkTarget() {
+		return false;
+	}
+	
+	/**
+	 * @return string The name of the file
+	 */
+	public function getName() {
+		if ($this->isRoot()) {
+			return parent::getName();
+		}
+		return $this->targetFile->getName();
+	}
+	
+	/**
+	 * @return string The path of the file's parent directory
+	 */
+	//public function getParentPath() {}
+	
+	/**
+	 * @return LocalFile The file corresponding to the file's parent directory
+	 */
+	//public function getParentFile() {}
+	
+	/**
+	 * @return string
+	 */
+	/*public function getPath() {
+		if ($this->isRoot()) {
+			return $this->localRootMountPoint;
+		}
+		return parent::getPath();
+	}*/
+	
+	/**
+	 * @return string
+	 */
+	//public function getPathFromRoot() {}
+	
+	/**
+	 * @return array('dirname' => ..., 'basename' => ..., 'extension' => ..., 'filename' => ...)
+	 */
+	//public function getPathInfo() {}
+	
+	/**
+	 * @return string The permissions of the file
+	 */
+	public function getPermissions($octal=true) {
+		if ($this->isRoot()) {
+			return parent::getPermissions($octal);
+		}
+		return $this->targetFile->getPermissions($octal);
+	}
+	
+	/**
+	 * @return int The size of the file (in KB)
+	 */
+	public function getSize($recursive=false) {
+		return $this->targetFile->getSize($recursive);
+	}
+	
+	/**
+	 * @return array The result of the function AdvancedPathLib::parse_url() on the path
+	 */
+	//public function getURLComponents() {}
+		
+	/**
+	 * @return boolean TRUE if the file is a directory, FALSE otherwise
+	 */
+	public function isDirectory() {
+		if ($this->isRoot()) {
+			return true;
+		}
+		return $this->targetFile->isDirectory();
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a normal file, FALSE otherwise
+	 */
+	public function isFile() {
+		if ($this->isRoot()) {
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->isFile();
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a link, FALSE otherwise
+	 */
+	public function isLink() {
+		if ($this->isRoot()) {
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->isLink();
+	}
+	
+	/**
+	 * @return array(AbstractFile) The list of the files contained in the "file" itself if this
+	 * one is a directory, or the files contained in the parent directory if this one is
+	 * a normal file
+	 */
+	public function listFiles($pattern='*', $flags=AdvancedPathLib::GLOB_NORMAL) {
+		if ($this->isDirectory()) {
+			$dir = $this->targetFile;
+			$myFakePath = $this->getAbsolutePath();
+		}
+		else {
+			$dir = $this->targetFile->getParentFile();
+			$myFakePath = $this->getParentPath();
+		}
+		$targetFiles = $dir->listFiles($pattern, $flags);
+		
+		$return = array();
+		$params = array(
+			'localRootMountPoint' => $this->localRootMountPoint,
+			'targetRootMountPoint' => $this->targetRootMountPoint
+		);
+		foreach($targetFiles as $targetFile) {
+			$params['targetFile'] = $targetFile;
+			$return[] = new EyeOSMountedFile($myFakePath.'/'.$targetFile->getName(), $params);
+		}
+		return $return;
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory has been successfully created, FALSE otherwise
+	 */
+	public function mkdir($mode=0777) {
+		if ($this->isRoot()) {
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->mkdir($mode);
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory and all the needed parent ones have been
+	 * successfully created, FALSE otherwise
+	 */
+	public function mkdirs($mode=0777) {
+		if ($this->isRoot()) {
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->mkdirs($mode);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully moved, FALSE otherwise
+	 */
+	public function moveTo(AbstractFile $file) {
+		if ($this->isRoot()) {
+			//TODO: move mountpoint?
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->moveTo($file);
+	}
+	
+	/**
+	 * NOTE: in the case of a link, the data is written to its target.
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public function putContents($data) {
+		if ($this->isRoot()) {
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->putContents($data);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully renamed, FALSE otherwise
+	 */
+	public function renameTo($newName) {
+		if ($this->isRoot()) {
+			return false;	//TODO: exception
+		}
+		return $this->targetFile->renameTo($newName);
+	}
+	
+	
+	
+	//############################################################################
+	//			STATIC METHODS
+	//############################################################################
+	
+	/**
+	 * (ftp://myftp.org/public/myRoot/myFile.ext		, ftp://myftp.org/public/myRoot)		=> /myFile.ext
+	 * (./users/jn4/john/files/myMountPoint/myFile.ext	, ./users/jn4/john/files/myMountPoint)	=> /myFile.ext
+	 * 
+	 * @param string $filePath
+	 * @param string $mountPointPath
+	 */
+	public static function getMountPointRelativePath($filePath, $mountPointPath) {
+		$path = utf8_substr($filePath, utf8_strlen($mountPointPath));
+		return '/'.$path;
+	}
+}
+?>

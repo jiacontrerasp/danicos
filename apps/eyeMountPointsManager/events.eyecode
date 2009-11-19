@@ -1,0 +1,467 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+//DEBUG
+error_reporting(E_ALL ^ E_NOTICE);
+//if (function_exists('xdebug_enable')) {xdebug_enable();}
+//DEBUG
+
+require_once('./system/services/vfs/file/main'.EYE_CODE_EXTENSION);
+
+function eyeMountPointsManager_on_init($params=null) {
+	eyeMountPointsManager_on_refresh_ITM();
+}
+
+function eyeMountPointsManager_on_refresh_ITM($params=null) {
+	global $currentUser;
+	
+	eyeMountPointsManager_emptyMountPointsTable();
+	
+	$userMountPointsList = service_mnt_getUserMountPointsList($currentUser);
+	foreach($userMountPointsList as $userMountPoint) {
+		$mountPointData = service_mnt_getUserMountPointData($currentUser, $userMountPoint);
+		$virtualRootPath = FSIService::getInstance()->getVirtualPath($mountPointData['root'][0]);
+		
+		if ($mountPointData['active'][0] == 'true') {
+			$iconUrl = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/mountpoint.png';
+		}
+		else {
+			$iconUrl = 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=images/toolbar/mountpointinactive.png';
+		}
+		$GLOBALS['mountpoints_SORTAB']->addRow(array(
+			'<img src="'.$iconUrl.'" style="width: 16px; height:16px;" />',
+			$virtualRootPath,
+			$mountPointData['target'][0],
+			$mountPointData['active'][0],
+			serialize($userMountPoint)
+		));
+	}
+}
+
+function eyeMountPointsManager_on_add_ITM($params=null) {
+	global $currentUser;
+	
+	eyeMountPointsManager_createEditDialog();
+	$GLOBALS['edit_title_LBL']->setText('New Mountpoint');
+	$GLOBALS['edit_localRootPath_TXTBOX']->setText('home://localhost/~'.$currentUser.'/');
+	$GLOBALS['edit_ok_BTN']->setCaption('Create');
+	$GLOBALS['edit_dialogType_HID']->setText('creation');
+}
+
+/**
+ * @return boolean
+ */
+function eyeMountPointsManager_on_addOk($params=null) {
+	global $currentUser;
+	
+	$localRootPath = $GLOBALS['edit_localRootPath_TXTBOX']->text;
+	$targetRootPath = $GLOBALS['edit_targetRootPath_TXTBOX']->text;
+	$active = $GLOBALS['edit_active_CHKBOX']->checked? true : false;
+	
+	if (!$localRootPath) {
+		eyeX('messageBox', array('content' => 'You must select a mountpoint'));
+		return false;
+	}
+	if (!$targetRootPath) {
+		eyeX('messageBox', array('content' => 'You must select a target'));
+		return false;
+	}
+	
+	$localRoot = FSIService::getInstance()->createFile($localRootPath);
+	if(is_null($localRoot)) {
+		eyeX('messageBox', array('content' => 'Wrong path entered for mountpoint'));
+		return false;
+	}
+	if (!$localRoot->isDirectory()) {
+		eyeX('messageBox', array('content' => 'Selected mountpoint is not a directory'));
+		return false;
+	}
+	if (count($localRoot->listFiles()) > 0) {
+		eyeX('messageBox', array('content' => 'The mountpoint must be an empty directory'));
+		return false;
+	}
+	$targetRoot = FSIService::getInstance()->createFile($targetRootPath);
+	if(is_null($targetRoot) || !$targetRoot->isDirectory()) {
+		eyeX('messageBox', array('content' => 'Target must be a directory'));
+		return false;
+	}
+	
+	if (!service_mnt_registerUserMountPoint($currentUser, $localRoot->getPathFromRoot(), $targetRoot->getAbsolutePath(), $active)) {
+		eyeX('messageBox', array('content' => 'Unable to create mountpoint'));
+		return false;
+	}
+	eyeX('messageBox', array('content' => 'Mountpoint created successfully'));
+	return true;
+}
+
+function eyeMountPointsManager_on_edit_ITM($params=null) {
+	global $currentUser;
+	
+	$selectedMountPoint = unserialize($GLOBALS['mountpoints_SORTAB']->selected);
+	if (!$selectedMountPoint) {
+		eyeX('messageBox', array('content' => 'Select a mountpoint first'));
+		return;
+	}
+	
+	$mountPointData = service_mnt_getUserMountPointData($currentUser, $selectedMountPoint);
+	$virtualRootPath = FSIService::getInstance()->getVirtualPath($mountPointData['root'][0]);
+	
+	eyeMountPointsManager_createEditDialog(array($mountPointData['root'][0]));
+	$GLOBALS['edit_title_LBL']->setText('Edit Mountpoint');
+	$GLOBALS['edit_localRootPath_TXTBOX']->setText($virtualRootPath);
+	$GLOBALS['edit_targetRootPath_TXTBOX']->setText($mountPointData['target'][0]);
+	if ($mountPointData['active'][0] == 'true') {
+		$GLOBALS['edit_active_CHKBOX']->check();
+	}
+	else {
+		$GLOBALS['edit_active_CHKBOX']->uncheck();
+	}
+	$GLOBALS['edit_ok_BTN']->setCaption('Apply changes');
+	$GLOBALS['edit_dialogType_HID']->setText('edition');
+}
+
+/**
+ * @return boolean
+ */
+function eyeMountPointsManager_on_editOk($params=null) {
+	global $currentUser;
+	
+	$originalMountPointPath = $GLOBALS['edit_mountPointPath_HID']->text;
+	$localRootPath = $GLOBALS['edit_localRootPath_TXTBOX']->text;
+	$targetRootPath = $GLOBALS['edit_targetRootPath_TXTBOX']->text;
+	$active = $GLOBALS['edit_active_CHKBOX']->checked? true : false;
+	
+	if (!$localRootPath) {
+		eyeX('messageBox', array('content' => 'You must select a mountpoint'));
+		return false;
+	}
+	if (!$targetRootPath) {
+		eyeX('messageBox', array('content' => 'You must select a target'));
+		return false;
+	}
+	
+	$originalLocalRoot = FSIService::getInstance()->createFile($originalMountPointPath);
+	$localRoot = FSIService::getInstance()->createFile($localRootPath);
+	if(is_null($localRoot)) {
+		eyeX('messageBox', array('content' => 'Wrong path entered for mountpoint'));
+		return false;
+	}
+	//if the mountpoint has changed
+	if (!$localRoot->equals($originalLocalRoot)) {
+		if (!$localRoot->isDirectory()) {
+			eyeX('messageBox', array('content' => 'Selected mountpoint is not a directory'));
+			return false;
+		}
+		if (count($localRoot->listFiles()) > 0) {
+			eyeX('messageBox', array('content' => 'The mountpoint must be an empty directory'));
+			return false;
+		}
+	}
+	$targetRoot = FSIService::getInstance()->createFile($targetRootPath);
+	if(is_null($targetRoot) || !$targetRoot->exists()) {
+		eyeX('messageBox', array('content' => 'Target seems to be wrong'));
+		return false;
+	}
+	
+	if (!service_mnt_unregisterUserMountPoint($currentUser, $originalMountPointPath)) {
+		eyeX('messageBox', array('content' => 'Unable to modify mountpoint'));
+		return false;
+	}
+	
+	if (!service_mnt_registerUserMountPoint($currentUser, $localRoot->getPathFromRoot(), $targetRoot->getAbsolutePath(), $active)) {
+		eyeX('messageBox', array('content' => 'Unable to modify mountpoint'));
+		return false;
+	}
+	eyeX('messageBox', array('content' => 'Mountpoint successfully updated'));
+	return true;
+}
+
+/**
+ * @return boolean
+ */
+function eyeMountPointsManager_on_del_ITM($params=null) {
+	global $currentUser;
+	
+	$selectedMountPoint = unserialize($GLOBALS['mountpoints_SORTAB']->selected);
+	if (!$selectedMountPoint) {
+		eyeX('messageBox', array('content' => 'Select a mountpoint first'));
+		return;
+	}
+	
+	if(!service_mnt_unregisterUserMountPoint($currentUser, $selectedMountPoint)) {
+		eyeX('messageBox', array('content' => 'Unable to delete mountpoint'));
+		return false;
+	}
+	eyeX('messageBox', array('content' => 'Mountpoint successfully removed'));
+	eyeMountPointsManager_on_refresh_ITM();
+	return true;
+}
+
+function eyeMountPointsManager_on_edit_browse_BTN($params=null) {
+	global $checknum;
+	$options = array(
+		EYEDIALOG_TYPE_SELECTFOLDER,
+		'edit_browseOk',
+		$checknum,
+		'',
+		array()
+	);
+	service('proc','launch',array('eyeDialog',$options));
+}
+function eyeMountPointsManager_on_edit_browseOk($params=null) {
+	global $currentUser;
+	$file = $params['arg'][0];
+	if(!$file) {
+		return;
+	}		
+	$filepath = 'home://~'.$currentUser.'/'.$file;			//this won't be necessary since eyeDialog would be rewritten
+	$file = FSIService::getInstance()->createFile($filepath);
+
+	$virtualPath = FSIService::getInstance()->getVirtualPath($file);
+	$GLOBALS['edit_localRootPath_TXTBOX']->setText($virtualPath);
+}
+
+
+function eyeMountPointsManager_on_edit_ok_BTN($params=null) {
+	$success = false;
+	switch($GLOBALS['edit_dialogType_HID']->text) {
+		case 'creation':
+			$success = eyeMountPointsManager_on_addOk();
+			break;
+		
+		case 'edition':
+			$success = eyeMountPointsManager_on_editOk();
+			break;
+	}
+	if ($success && is_object($GLOBALS['edit_DLG'])) {
+		$GLOBALS['edit_DLG']->close();
+		eyeMountPointsManager_on_refresh_ITM();
+	}
+}
+
+//=======================================================
+//				NOT EVENTS
+//=======================================================
+
+function eyeMountPointsManager_emptyMountPointsTable() {
+	if(is_object($GLOBALS['mountpoints_SORTAB'])) {
+		@$GLOBALS['mountpoints_SORTAB']->remove();
+	}
+	$myTable = new Sortabletable(array(
+		'name' => 'mountpoints_SORTAB',
+		'father' => 'eyeMountPointsManager_WND_Content',		//should be $userTab, etc.
+		'x' => 2,
+		'y' => 60,
+		'width' => $GLOBALS['eyeMountPointsManager_WND']->width - 8,
+		'height' => $GLOBALS['eyeMountPointsManager_WND']->height - 90,
+		'sortypes' => array('Html','String','String','String','Hidden'),
+		'master' => 4,
+		'theader' => array(' ','Mountpoint','Target','Active','id'),
+		'signal' => 'tableClick',
+		'dblsignal' => 'tableDblClick'
+	));
+	$myTable->show();
+	$myTable->setCss(array('white-space' => 'nowrap'));
+}
+
+function eyeMountPointsManager_createEditDialog($params=null) {
+	if (is_object($GLOBALS['edit_DLG'])) {
+		$GLOBALS['edit_DLG']->close();
+	}
+	
+	$mainWindow = new Window(array(
+		'name' => 'edit_DLG',
+		'father' => 'eyeApps',
+		'cent' => 1,
+		'type' => NOLIST_CLOSE_WINDOW,
+		'width' => 400,
+		'height' => 290,
+		'title' => 'MountPoint Properties',
+		'removepid' => 0
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'edit_logo_IMG',
+		'father' => 'edit_DLG_Content',
+		'x' => 10,
+		'y' => 5,
+		'url' => 'index.php?version=' . EXTERN_CACHE_VERSION . '&theme=1&extern=icons/48x48/mountpoint.png'
+	));
+	$logo->show();
+	
+	//TITLE
+	$title = new Label(array(
+		'name' => 'edit_title_LBL',
+		'father' => 'edit_DLG_Content',
+		'x' => 70,
+		'y' => 16,
+		'text' => 'Mount Point'
+	));
+	$title->show(0);
+	$title->setCss(array(
+		'font-size' => '16px',
+		'font-weight' => 'bold',
+		'color' => '#004488',
+		'word-wrap' => 'break-word'
+	));
+	
+	//LINE
+	$line = new Line(array(
+		'name' => 'edit_line_LIN',
+		'father' => 'edit_DLG_Content',
+		'x' => 10,
+		'y' => 64,
+		'width' => $mainWindow->width -20,
+		'height' => 2
+	));
+	$line->show(0);
+	
+	//LOCAL PATH
+	$localRootPath = new Label(array(
+		'name' => 'edit_localRootPath_LBL',
+		'father' => 'edit_DLG_Content',
+		'x' => 20,
+		'y' => 80,
+		'text' => 'Local mountpoint:'
+	));
+	$localRootPath->show(0);
+	
+	$localPathTextbox = new Textbox(array(
+		'name' => 'edit_localRootPath_TXTBOX',
+		'father' => 'edit_DLG_Content',
+		'x' => 10,
+		'y' => 100,
+		'width' => $mainWindow->width - 30,
+		'text' => '',
+		'enabled' => 0
+	));
+	$localPathTextbox->show();
+	
+	$browseButton = new Button(array(
+		'name' => 'edit_browse_BTN',
+		'father' => 'edit_DLG_Content',
+		'caption' => 'Browse',
+		'x' => $mainWindow->width - 96,
+		'y' => $localPathTextbox->y -24,
+		'height' => 20,
+		'width' => 80,
+		'enabled' => 1
+	));
+	$browseButton->show(0);
+	$browseButton->addFriend($localPathTextbox);
+	
+	//TARGET PATH
+	$targetRootPath = new Label(array(
+		'name' => 'edit_targetRootPath_LBL',
+		'father' => 'edit_DLG_Content',
+		'x' => 20,
+		'y' => 140,
+		'text' => 'Target path:'
+	));
+	$targetRootPath->show(0);
+	
+	$targetPathTextbox = new Textbox(array(
+		'name' => 'edit_targetRootPath_TXTBOX',
+		'father' => 'edit_DLG_Content',
+		'x' => 10,
+		'y' => 160,
+		'width' => $mainWindow->width - 30,
+		'text' => '',
+		'enabled' => 1
+	));
+	$targetPathTextbox->show();
+	
+	$activeCheckbox = new Checkbox(array(
+		'name' => 'edit_active_CHKBOX',
+		'father' => 'edit_DLG_Content',
+		'x' => 16,
+		'y' => 190,
+		'text' => 'Set mountpoint active',
+		'checked' => 1
+	));
+	$activeCheckbox->show();
+	
+	$okButton = new Button(array(
+		'name' => 'edit_ok_BTN',
+		'father' => 'edit_DLG_Content',
+		'caption' => 'Apply',
+		'x' => $mainWindow->width - 116,
+		'y' => $mainWindow->height - 64,
+		'height' => 24,
+		'width' => 100,
+		'enabled' => 1
+	));
+	$okButton->addFriend($localPathTextbox);
+	$okButton->addFriend($targetPathTextbox);
+	$okButton->addFriend($activeCheckbox);
+	$okButton->show(0);
+	
+	$dialogType = new Hidden(array(
+		'name' =>'edit_dialogType_HID',
+		'father' => 'edit_DLG_Content',
+		'text' => '0'
+	));
+	$dialogType->show();
+	
+	$dialogType = new Hidden(array(
+		'name' =>'edit_mountPointPath_HID',
+		'father' => 'edit_DLG_Content',
+		'text' => $params[0]? $params[0] : ''
+	));
+	$dialogType->show();
+}
+
+
+
+//----------------------------------------------------------------------------------------------
+function firebugLog($message) {
+	$message = str_replace('"', '\\"', $message);
+	eyeX('rawjs', array('js' => 'console.log("'.print_r($message,true).'")'));
+}
+
+function eyeMountPointsManager_on_windowResize($params) {
+	$newWidth = intval($params['arg'][0]);
+	$newHeight = intval($params['arg'][1]);
+	
+	//update window properties
+	$GLOBALS['eyeFileBrowser_WND']->setWidth($newWidth);
+	$GLOBALS['eyeFileBrowser_WND']->setHeight($newHeight);
+	
+	$GLOBALS['path_TXTBOX']->setWidth($newWidth -84);
+	$GLOBALS['go_BTN']->setX($newWidth - 46);
+	
+	$GLOBALS['files_TAB']->setWidth($newWidth - 8);
+	$GLOBALS['files_TAB']->setHeight($newHeight - 138);
+}
+
+function eyeMountPointsManager_on_Message($params=null){
+	eyeWidgets('updateContent',$params);
+}
+
+function eyeMountPointsManager_on_Close(){
+	proc('end');
+}
+
+
+?>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GACL>
+	<ACL>
+		<action>ACCEPT</action>
+		<service>.*</service>
+		<call>.*</call>
+		<target>
+			<type>user</type>
+			<targetname>.*</targetname>
+		</target>
+	</ACL>
+</GACL>

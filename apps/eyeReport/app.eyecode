@@ -1,0 +1,299 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+/**
+ * @author Nanawel (nanawel@eyeos.org)
+ * @version 1.0
+ * @updated 13-May-2008
+ */
+
+
+include_once(EYE_ROOT.'/'.APP_DIR.'/eyeReport/func'.EYE_CODE_EXTENSION);
+
+function eyeReport_run($params=null) {
+	global $currentUser;
+	switch($currentUser) {
+		case ROOTUSER:
+			drawRootInterface($params);
+			break;
+		default:
+			drawUserInterface($params);
+			break;
+	}
+}
+
+//#########################################################################################
+//	Normal User Interface
+//#########################################################################################
+function drawUserInterface($params=null) {
+	global $checknum, $myPid;
+	
+	//DEBUG
+	//$params[0] = 'eyeos16survey.xml';
+	
+	if (!$params[0]) {
+		eyeX('messageBox', array('content' => 'Unable to run eyeReport: wrong parameter'));
+		proc('end');
+		return;
+	}
+	$surveyFilename = $params[0];
+	$surveyNumber = $params[1]? $params[1] : 0;
+		
+	//check the user's configuration directory and create it if needed 
+	$confDir = service('um','getCurrentUserDir').CONF_USER_DIR.'/eyeReport';
+	if(!vfs('real_fileExists',array($confDir))) {
+		vfs('real_mkdir',array($confDir));
+	}
+	
+	$survey = parseSurvey($surveyFilename, $surveyNumber);
+	if ($survey->displayOnceOnly && isSurveyAlreadyAnswered($survey->id)) {
+		proc('end');
+		return;
+	}
+	
+	$mainWindow = new Window(array(
+		'name' => 'eyeReport_WND',
+		'father' => 'eyeApps',
+		'cent' => 1,
+		'type' => NORESIZE_WINDOW,
+		'width' => 640,
+		'height' => 480,
+		'title' => 'eyeReport',
+		'savePosition' => 1
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'logo_IMG',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 20,
+		'y' => 10,
+		'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeReport/gfx/logo.png'
+	));
+	$logo->show();
+	
+	//TITLE
+	$title = new Label(array(
+		'name' => 'title_LBL',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 100,
+		'y' => 10,
+		'text' => ''
+	));
+	$title->show(0);
+	$title->setCss(array(
+		'font-size' => '16px',
+		'font-weight' => 'bold',
+		'color' => '#004488'
+	));
+	
+	//DESCRIPTION
+	$desc = new Label(array(
+		'name' => 'desc_LBL',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 100,
+		'y' => 36,
+		'text' => ''
+	));
+	$desc->show(0);
+	
+	//ANONYMOUS REMARK
+	$anonym = new Label(array(
+		'name' => 'anonym_LBL',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 30,
+		'y' => 430,
+		'text' => ''
+	));
+	$anonym->show(0);
+	$anonym->setCss(array(
+		'font-size' => '9px',
+		'font-style' => 'italic',
+		'color' => '#AAAAAA'
+	));
+	
+	//LINE
+	$line = new Line(array(
+		'name' => 'line_LIN',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 10,
+		'y' => 90,
+		'width' => $mainWindow->width -20,
+		'height' => 2
+	));
+	$line->show(0);
+	
+	//--------------------------------------------------------------------------------------
+	
+	$surveyObject = new Hidden(array(
+		'name' => 'survey_HID',
+		'father' => 'eyeReport_WND_Content',
+		'text' => ''
+	));
+	$surveyObject->show();
+	serializeCurrentSurvey($survey);
+	
+	$pageNumber = new Hidden(array(
+		'name' => 'pageNumber_HID',
+		'father' => 'eyeReport_WND_Content',
+		'text' => '0'
+	));
+	$pageNumber->show();
+	
+	$answers = new Hidden(array(
+		'name' => 'answers_HID',
+		'father' => 'eyeReport_WND_Content',
+		'text' => serialize(array())
+	));
+	$answers->show();
+	
+	initSurvey();
+}
+
+//#########################################################################################
+//	Root User Interface
+//#########################################################################################
+function drawRootInterface($params=null) {
+	$mainWindow = new Window(array(
+		'name' => 'eyeReport_WND',
+		'father' => 'eyeApps',
+		'cent' => 1,
+		'type' => NORMAL_WINDOW,
+		'width' => 640,
+		'height' => 480,
+		'title' => 'eyeReport',
+		'sigResize' => 'windowResize',
+		'sendResizeMsg' => 1,
+		'savePosition' => 1
+	));
+	$mainWindow->show();
+	
+	$logo = new Imagebox(array(
+		'name' => 'logo_IMG',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 20,
+		'y' => 10,
+		'url' => 'index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeReport/gfx/logo.png'
+	));
+	$logo->show();
+	
+	//TITLE
+	$title = new Label(array(
+		'name' => 'title_LBL',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 100,
+		'y' => 10,
+		'text' => 'eyeReport - Results Viewer'
+	));
+	$title->show(0);
+	$title->setCss(array(
+		'font-size' => '16px',
+		'font-weight' => 'bold',
+		'color' => '#004488'
+	));
+	
+	//SELECT FILE LABEL
+	$selectFileLabel = new Label(array(
+		'name' => 'fileSelect_LBL',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 100,
+		'y' => 40,
+		'text' => 'Choose a result file then click "Display Results":'
+	));
+	$selectFileLabel->show(0);
+	
+	//SELECT FILE
+	$fileSelect = new Select(array(
+		'name' => 'file_SEL',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 100,
+		'y' => 64/*,
+		'width' => 150*/
+	));
+	$fileSelect->show(0);
+	$fileSelect->setCss(array(
+		'background-color' => 'white',
+		'border' => '1px solid #bcbcbc',
+		'padding-left' => '2px',
+		'font-size' => '11px'
+	));
+	
+	$content = vfs('real_getDirContent', array(EYE_ROOT.'/'.APP_DIR.'/share/eyeReport', '*.xml'));
+	$resultsFiles = array();
+	foreach ($content as $file) {
+		$xml = eyeXml('getXmlFile', array($file));
+		if ($xml['eyeReportResults'][0]['result']) {
+			$resultsFiles[] = $file;
+		}
+	}
+	
+	foreach($resultsFiles as $file) {
+		$fileSelect->addOption(utf8_basename($file), $file, 0);
+	}
+	
+	//LINE
+	$line = new Line(array(
+		'name' => 'line_LIN',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 10,
+		'y' => 90,
+		'width' => $mainWindow->width -20,
+		'height' => 2
+	));
+	$line->show(0);
+	
+	//RESULTS IFRAME
+	$results = new Iframe(array(
+		'name' => 'results_IFR',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 10,
+		'y' => 100,
+		'width' => $mainWindow->width -30,
+		'height' => $mainWindow->height -140
+	));
+	$results->show(0);
+	
+	//DISPLAY RESULTS BUTTON
+	$displayResultsButton = new Button(array(
+		'name' => 'displayResults_BTN',
+		'father' => 'eyeReport_WND_Content',
+		'x' => 520,
+		'y' => 60,
+		'caption' => 'Display Results'
+	));
+	$displayResultsButton->addFriend($fileSelect);
+	$displayResultsButton->addFriend($results);
+	$displayResultsButton->show();
+	
+	if (count($resultsFiles) == 0) {
+		$fileSelect->addOption('(No results at the moment)', '', 1);
+		$fileSelect->disable();
+		$displayResultsButton->disable();
+	}
+}
+
+
+function eyeReport_end($params=null) {
+	reqLib('eyeWidgets','unserialize');
+}
+?>

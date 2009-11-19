@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<eyeReport>
+	<survey>
+		<id>eyeos1.6survey_May2008</id>
+		<title>Improving eyeOS With Your Help</title>
+		<description>Please take 20 seconds to answer this survey and let us improve eyeOS with your ideas. We'll read every answer and make the roadmap for the new version with these answers in mind.</description>
+		<anonymous>false</anonymous>
+		<displayOnceOnly>true</displayOnceOnly>
+		
+		<resultsStorage>
+			<method>Xml</method>
+			<params>
+				<filename>eyeos1.6survey_results.xml</filename>
+			</params>
+		</resultsStorage>
+
+		<page>
+			<id>eyeos1.6survey_May2008_page1</id>
+			<title></title>
+			<description></description>
+			
+			<question>
+				<id>eyeos1.6survey_May2008_q1</id>
+				<text>Please rate your personal experience with eyeOS:</text>
+				<answer>
+					<type>StarsRate</type>
+					<params>
+						<number>5</number>
+						<default>3</default>
+					</params>
+				</answer>
+			</question>
+			
+			<question>
+				<id>eyeos1.6survey_May2008_q2</id>
+				<text>What would you like to see improved in eyeOS?</text>
+				<answer>
+					<type>MultipleChoice</type>
+					<params>
+						<choice>
+							<text>The desktop design</text>
+						</choice>
+						<choice>
+							<text>Usability/Ease of use</text>
+						</choice>
+						<choice>
+							<text>Office applications</text>
+						</choice>
+						<choice>
+							<text>Calendar and contacts</text>
+						</choice>
+						<choice>
+							<text>Default games</text>
+						</choice>
+						<choice>
+							<text>More widgets</text>
+						</choice>
+						<choice>
+							<text>Collaboration between users</text>
+						</choice>
+					</params>
+				</answer>
+			</question>
+			
+			<question>
+				<id>eyeos1.6survey_May2008_q3</id>
+				<text>What do you think about eyeOS? Best of it? Worst of it?</text>
+				<answer>
+					<type>SimpleText</type>
+					<params></params>
+				</answer>
+			</question>
+		</page>
+	</survey>
+</eyeReport>

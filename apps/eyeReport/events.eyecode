@@ -1,0 +1,108 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)         
+*/
+
+include_once(EYE_ROOT.'/'.APP_DIR.'/eyeReport/func'.EYE_CODE_EXTENSION);
+
+//#########################################################################################
+//	Normal User Interface
+//#########################################################################################
+
+$currentSurvey = null;
+
+function eyeReport_on_pageButton_BTN($params=null) {
+	global $currentSurvey;
+	$currentPage = intval($GLOBALS['pageNumber_HID']->text);
+	
+	if ($currentPage == $currentSurvey->nbPages -1) {
+		saveCurrentAnswers();
+		submitSurvey();
+		
+		setSurveyAsAnswered($currentSurvey->id);
+		
+		eyeX('messageBox', array('content' => 'Thank you for having participated in this survey!'));
+		proc('end');
+	}
+	else {
+		saveCurrentAnswers();
+		drawPage($currentSurvey, $currentPage +1);
+	}
+}
+
+
+//#########################################################################################
+//	Root User Interface
+//#########################################################################################
+
+function eyeReport_on_displayResults_BTN($params=null) {
+	if(!is_object($GLOBALS['file_SEL']) || !$GLOBALS['file_SEL']->selected || !is_object($GLOBALS['results_IFR'])) {
+		return;
+	}
+	
+	$resultsFilePath = $GLOBALS['file_SEL']->selected;
+	$resultsFileName = utf8_basename($resultsFilePath);
+	
+	vfs('real_move', array($resultsFilePath, EYE_ROOT.'/'.EXTERN_DIR.'/'.APP_DIR.'/eyeReport/results'));
+	$fileContent = vfs('real_getFileContent', array($resultsFilePath));
+	
+	$newFileContent = "<?xml-stylesheet type=\"text/xsl\" href=\"index.php?version=".EXTERN_CACHE_VERSION."&extern=apps/eyeReport/results.xsl\"?>\n";
+	$newFileContent .= $fileContent;
+	
+	vfs('real_putFileContent', array(EYE_ROOT.'/'.EXTERN_DIR.'/'.APP_DIR.'/eyeReport/results/'.$resultsFileName, $newFileContent));
+	
+	$GLOBALS['results_IFR']->setUrl('index.php?version='.EXTERN_CACHE_VERSION.'&extern=apps/eyeReport/results/'.$resultsFileName);
+}
+
+function eyeReport_on_windowResize($params=null) {
+	global $myPid;
+	
+	$newWidth = intval($params['arg'][0]);
+	$newHeight = intval($params['arg'][1]);
+	
+	//update window properties
+	$GLOBALS['eyeReport_WND']->setWidth($newWidth);
+	$GLOBALS['eyeReport_WND']->setHeight($newHeight);
+
+	$dWidth = $newWidth - 640;
+	$dHeight = $newHeight - 480;
+	
+	$GLOBALS['line_LIN']->setWidth($newWidth -20);
+	
+	$GLOBALS['results_IFR']->setWidth($newWidth -30);
+	$GLOBALS['results_IFR']->setHeight($newHeight -140);
+}
+
+
+//#########################################################################################
+//	Common
+//#########################################################################################
+
+function eyeReport_on_Message($params="") {
+	reqLib('eyeWidgets', 'updateContent', $params);
+	loadCurrentSurvey();
+}
+
+function eyeReport_on_Close(){
+	proc('end');
+}
+
+?>

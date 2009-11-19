@@ -1,0 +1,596 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+class EyeOSVirtualTrash extends EyeOSFile {
+	protected $eyeOSVirtualDataFile = null;
+	
+	/**
+	 * 
+	 * @param string $path  
+	 * @param array $params 
+	 */
+	public function __construct($path, $params=null) {
+		parent::__construct($path, $params);
+		$this->statsCache['trashInfo'] = array();
+	}
+	
+	//###############################################################################
+	//			METHODS
+	//###############################################################################
+	
+	protected function fillStatsCache() {
+		$info = $this->getInfo();
+		if ($info) {
+			if ($this->statsCache['trashInfo']['eyeTrash'][0]['type'][0] == 'dir') {
+				$this->statsCache['isDirectory'] = true;
+				$this->statsCache['isFile'] = false;
+			}
+			elseif ($this->statsCache['trashInfo']['eyeTrash'][0]['type'][0] == 'file') {
+				$this->statsCache['isDirectory'] = false;
+				$this->statsCache['isFile'] = true;
+			}
+			else {
+				throw new Exception('EyeOSVirtualTrash->fillStatsCache(): Unknown value "'.$info['eyeTrash'][0]['type'][0].'" for filetype');
+			}
+		}
+		else {
+			$this->statsCache['isDirectory'] = false;
+			$this->statsCache['isFile'] = false;
+		}
+	}
+	
+	/**
+	 * @return array
+	 */
+	public function getInfo($force=false) {
+		if ($force || empty($this->statsCache['trashInfo'])) {
+			$info = eyeXML('xml2array', array(parent::getContents()));
+			if ($info) {
+				$this->statsCache['trashInfo'] = $info;
+			}
+			else {
+				return false;	//TODO: exception
+			}
+		}
+		return $this->statsCache['trashInfo'];
+	}
+	
+	protected function getEyeOSVirtualDataFile($params=null) {
+		if ($this->isTrashRootDir()) {
+			throw new Exception('EyeOSVirtualTrash->getEyeOSVirtualDataFile(): Error! File "'.$this->path.'" has no EyeOSVirtualFile');
+		}
+		if (is_null($this->eyeOSVirtualDataFile)) {
+			$filePath = $this->getParentPath().'/'.pathinfo($this->path, PATHINFO_FILENAME);
+			if ($this->isFile()) {
+				$filePath .= '.'.EYEOS_FILE_EXT;
+			}
+			elseif (!$this->isDirectory()) {
+				return false;	//TODO: exception
+			}
+			$this->eyeOSVirtualDataFile = new EyeOSVirtualFile($filePath, $params);
+		}
+		return $this->eyeOSVirtualDataFile;
+	}
+	
+	protected function isTrashRootDir() {
+		return parent::isDirectory() && parent::getName() == TRASH_USER_DIR;
+	}
+	
+	/**
+	 * @param array $info XML-Array containing the information to write to the file
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public function setInfo($info) {
+		if (parent::putContents(eyeXML('array2xml', array($info)))) {
+			$this->statsCache['trashInfo'] = $info;
+			return true;
+		}
+		return false;	//TODO: exception
+	}
+		
+	//###############################################################################
+	//			LocalFile OVERLOADED METHODS
+	//###############################################################################
+	
+	/**
+	 * @return boolean TRUE if the file can be read by the current user, FALSE otherwise
+	 */
+	public function canRead() {
+		return false;
+	}
+	
+	/**
+	 * @return boolean TRUE if the file can be written by the current user, FALSE otherwise
+	 */
+	public function canWrite() {
+		return false;
+	}
+	
+	/**
+	 * @param AbstractFile $file
+	 * @return int A negative value if the current file should be placed before $file,
+	 * zero (0) if they are equals, a positive value otherwise
+	 */
+	//public function compareTo(AbstractFile $file, $foldersFirst=false) {}
+	
+	/**
+	 * == WARNING! A file must only be __moved__ to the trash and not copied! ==
+	 * == This method is intended to be called __internally__ only!           ==
+	 * 
+	 * TODO: check this mess again, it should be possible to optimize it
+	 * 
+	 * @param AbstractFile $file The source file to copy from
+	 * @return boolean TRUE if the file has been successfully copied from $file, FALSE otherwise
+	 */
+	public function copyFrom(AbstractFile $file, $overwrite=true) {
+		if (!$file instanceof EyeOSVirtualFile) {
+			throw new Exception('EyeOSVirtualTrash->copyFrom(): Given argument (file "'.$file->path.'") is not an EyeOSVirtualFile, operation is unavailable');
+		}
+		if ($file->isLink()) {
+			throw new Exception('EyeOSVirtualTrash->copyFrom(): Given argument (link "'.$file->path.'") is a link, operation is unavailable');
+		}
+		$parentDirFile = $this->getParentFile();
+		if ($parentDirFile instanceof EyeOSVirtualTrash && $parentDirFile->isTrashRootDir() && !$this->exists()) { 
+			return $parentDirFile->copyFrom($file, $overwrite);
+		}
+		if ($this->isTrashRootDir()) {
+			if ($file->isFile()) {
+				//TODO Find a better way? This is really ugly... (even if it works)
+				$destFilePath = $this->path.'/'.utf8_basename($file->getAbsolutePath());
+				$destInfoFilePath = $this->path.'/'.utf8_basename($file->getInfoFile()->getAbsolutePath());
+				$destVirtualFile = new EyeOSVirtualFile($destFilePath);
+				$destLocalFile = new LocalFile($destFilePath);
+				$destGenericInfoFile = new LocalFile($destInfoFilePath);
+				try {
+					$res = $destGenericInfoFile->copyFrom($file->getInfoFile());
+					$res &= $destLocalFile->copyFrom($file);
+					$eStack = '';
+				}
+				catch(Exception $e) {
+					$res = false;
+					$eStack = $e->getMessage();
+				}
+				if (!$res) {
+					throw new Exception('EyeOSVirtualTrash->copyFrom(): Unable to copy virtual file to "'.$destVirtualFile->path.'"'
+										."\n --- ".$eStack);
+				}
+				$virtualFileUrlParts = $destVirtualFile->getURLComponents();
+				$destTrashName = self::generateFilename($virtualFileUrlParts['path']);
+				if (!$destTrashName) {
+					throw new Exception('EyeOSVirtualTrash->copyFrom(): Unable to extract unique string sequence from filename ("'.$destVirtualFile->path.'")');
+				}
+				$destTrashFile = new EyeOSVirtualTrash($this->path.'/'.$destTrashName);
+				if (!$destTrashFile->createNewFile()) {
+					throw new Exception('EyeOSVirtualTrash->copyFrom(): Unable to create trash INFO file ("'.$destTrashFile->path.'")');
+				}
+				$trashInfo = array(
+					'eyeTrash' => array( 
+						array(
+							'deleteDate' => array(time()),
+							'restorePoint' => array($file->path),
+							'lastname' => array($file->getName()),
+							'type' => array('file')
+						)
+					)
+				);
+				if ($destTrashFile->setInfo($trashInfo)) {
+					return true;
+				}
+				throw new Exception('EyeOSVirtualTrash->copyFrom(): Unable to write informations to INFO file for "'.$destTrashFile->path.'"');
+			}
+			elseif($file->isDirectory()) {
+				$destDirname = self::generateDirname();
+				$destDirFile = new EyeOSVirtualFile($this->path.'/'.$destDirname);
+				if (!$destDirFile->mkdir()) {
+					throw new Exception('EyeOSVirtualTrash->copyFrom(): Unable to create destination directory ("'.$destDirFile->path.'")');
+				}
+				foreach($file->listFiles() as $subFile) {
+					$destDirFile->copyFrom($subFile);  
+				}
+				
+				$destTrashFile = new EyeOSVirtualTrash($this->path.'/'.$destDirname.'.'.EYEOS_TRASH_EXT);
+				if (!$destTrashFile->createNewFile()) {
+					throw new Exception('EyeOSVirtualTrash->copyFrom(): Unable to create trash INFO file ("'.$destTrashFile->path.'")');
+				}
+				$trashInfo = array(
+					'eyeTrash' => array( 
+						array(
+							'deleteDate' => array(time()),
+							'restorePoint' => array($file->path),
+							'lastname' => array($file->getName()),
+							'type' => array('dir')
+						)
+					)
+				);
+				if ($destTrashFile->setInfo($trashInfo)) {
+					return true;
+				}
+			}
+		}
+		else {
+			throw new Exception('EyeOSVirtualTrash->copyFrom(): Cannot copy files here, only in Trash\'s root directory ("'.$this->path.'")');
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * NOTE: This method is public for inheritance reasons, but it is NOT designed to be called from
+	 * outside the class. The creation of file is reserved to internal processings.
+	 * @param boolean $overwrite Set to TRUE to try overwriting the file if it already exists
+	 * @return boolean TRUE if the file has been successfully created, FALSE otherwise
+	 */
+	//public function createNewFile($overwrite=false) {}
+	
+	/**
+	 * @param AbstractFile $target The target file the link will point to
+	 * @param boolean $overwrite
+	 * @return boolean TRUE if the link has been successfully created, FALSE otherwise
+	 */
+	public function createNewLink(AbstractFile $target, $overwrite=false) {
+		throw new Exception('EyeOSVirtualTrash->createNewLink(): Operation not supported "'.$this->path.'"');
+	}
+	
+	/**
+	 * @param boolean $recursive
+	 * @return boolean TRUE if the file has been successfully deleted, FALSE otherwise
+	 */
+	public function delete($recursive=false, $onlyContents=false) {
+		if ($this->isTrashRootDir()) {
+			return parent::delete($recursive, true);
+		}
+		if ($this->isFile()) {
+			$virtualDataFile = $this->getEyeOSVirtualDataFile();
+			if (is_object($virtualDataFile)) {
+				if (!$virtualDataFile->delete($recursive, $onlyContents)) {
+					throw new Exception('EyeOSVirtualTrash->delete(): Unable to delete data file "'.$virtualDataFile->path.'"');
+				}
+			}
+			return parent::delete();
+		}
+		else {
+			$dataDir = new EyeOSSystemFile($this->getParentPath().'/'.pathinfo($this->path, PATHINFO_FILENAME));
+			if (!$dataDir->delete($recursive, $onlyContents)) {
+				throw new Exception('EyeOSVirtualTrash->delete(): Unable to delete directory "'.$dataDir->path.'"'); 
+			}
+			if (!$onlyContents) {
+				$trashFile = new EyeOSSystemFile($this->path);
+				return $trashFile->delete();
+			}
+		}
+		return true;
+	}
+	
+	/**
+	 * @return boolean TRUE if the current file designate the same file as $file, FALSE otherwise
+	 */
+	//public function equals(AbstractFile $file) {}
+	
+	/**
+	 * @return boolean TRUE if the file/folder/link exists, FALSE otherwise
+	 */
+	public function exists($forceCheck=false) {
+		if ($forceCheck) {
+			$this->statsCache['isDirectory'] = null;
+			$this->statsCache['isFile'] = null;
+			$this->statsCache['isLink'] = null;
+		}
+		if ($this->isDirectory() || $this->isFile()) {
+			return true;
+		}
+	}
+	
+	/**
+	 * @return string
+	 *
+	public function getAbsolutePath() {}*/
+	
+	/**
+	 * The object returned will either represent a file located in the directory if the current
+	 * file exists and is a directory, or a file located in the same directory as the current
+	 * file otherwise.
+	 * @param string $fileName The name of the file
+	 * @return AbstractFile
+	 */
+	public function getChildFile($fileName, $params=null) {
+		if ($this->isTrashRootDir()) {
+			return parent::getChildFile($fileName, $params);
+		}
+		return $this->getEyeOSVirtualDataFile()->getChildFile($fileName, $params);	//FIXME: may raise an error if getEyeOSVirtualDataFile() returns false
+	}
+	
+	/**
+	 * @return mixed The content of the file or FALSE if an error occured
+	 */
+	public function getContents() {
+		throw new Exception('EyeOSVirtualTrash->getContents(): Operation not supported "'.$this->path.'". Use getInfo() instead');
+	}
+	
+	/**
+	 * @return string The extension of the file
+	 */
+	public function getExtension() {
+		$info = $this->getInfo();
+		if (!$info) {
+			return parent::getExtension();
+		}
+		return pathinfo($info['eyeTrash'][0]['lastname'][0], PATHINFO_EXTENSION);
+	}
+	
+	/**
+	 * @return AbstractFile The target file pointed by the link, or FALSE if an error occured
+	 */
+	/*public function getLinkTarget() {
+		//TODO?
+	}*/
+	
+	/**
+	 * @return string The name of the file
+	 */
+	public function getName() {
+		$info = $this->getInfo();
+		if (!$info) {
+			return parent::getName();
+		}
+		return $info['eyeTrash'][0]['lastname'][0];
+	}
+	
+	/**
+	 * @return string The path of the file's parent directory
+	 */
+	//public function getParentPath() {}
+	
+	/**
+	 * @return LocalFile The file corresponding to the file's parent directory
+	 */
+	//public function getParentFile() {}
+	
+	/**
+	 * @return string
+	 */
+	//public function getPath() {}
+	
+	/**
+	 * @return string
+	 */
+	//public function getPathFromRoot() {}
+	
+	/**
+	 * @return array('dirname' => ..., 'basename' => ..., 'extension' => ..., 'filename' => ...)
+	 */
+	//public function getPathInfo() {}
+	
+	/**
+	 * @return string The permissions, in *NIX-like style (-rwxrwxrwx)
+	 */
+	//public function getPermissions() {}
+	
+	/**
+	 * @return int The size of the file (in KB)
+	 */
+	public function getSize($recursive=false) {
+		if ($this->isTrashRootDir()) {
+			return parent::getSize($recursive);
+		}
+		$virtualDataFile = $this->getEyeOSVirtualDataFile();
+		if (!is_object($virtualDataFile)) {
+			return 0;
+		}
+		return $virtualDataFile->getSize($recursive);
+	}
+	
+	/**
+	 * @return array The result of the function AdvancedPathLib::parse_url() on the path
+	 */
+	//public function getURLComponents() {}
+		
+	/**
+	 * @return boolean TRUE if the file is a directory, FALSE otherwise
+	 */
+	public function isDirectory() {
+		if (is_null($this->statsCache['isDirectory'])) {
+			$this->fillStatsCache();
+		}
+		return $this->statsCache['isDirectory'] || $this->isTrashRootDir();
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a normal file, FALSE otherwise
+	 */
+	public function isFile() {
+		if (is_null($this->statsCache['isFile'])) {
+			$this->fillStatsCache();
+		}
+		return $this->statsCache['isFile'];
+	}
+	
+	/**
+	 * NOTE: Links cannot be put into the trash!
+	 * @return boolean TRUE if the file is a link, FALSE otherwise
+	 */
+	public function isLink() {
+		return false;
+	}
+	
+	/**
+	 * @return array(AbstractFile) The list of the files contained in the "file" itself if this
+	 * one is a directory, of the files contained in the parent directory if this one is
+	 * a normal file
+	 */
+	public function listFiles($pattern='*', $flags=AdvancedPathLib::GLOB_NORMAL) {
+		if (!$this->isDirectory()) {
+			return $this->getParentFile()->listFiles($pattern, $flags);
+		}
+		
+		//TRASH ROOT
+		if ($this->isTrashRootDir()) {
+			$dirPath = $this->getParentPath().'/'.pathinfo($this->path, PATHINFO_FILENAME);
+			$filesPattern = '*.'.EYEOS_TRASH_EXT;
+			try {
+				$files = AdvancedPathLib::glob($dirPath, $filesPattern, AdvancedPathLib::GLOB_NORMAL);
+			}
+			catch(Exception $e) {
+				throw new Exception('EyeOSVirtualTrash->listFiles(): Unable to list files in directory "'.$dirPath.'"'
+									."\n --- ".$e->getMessage());
+			}
+			$filesObjects = array();
+			foreach($files as $filePath) {
+				$fileObject = new EyeOSVirtualTrash($filePath);
+				if (($flags & AdvancedPathLib::GLOB_ONLY_DIR) && !$fileObject->isDirectory()) {
+					continue;
+				}
+				if (($flags & AdvancedPathLib::GLOB_DIR_IGNORE_PATTERN) && $fileObject->isDirectory()
+					|| AdvancedPathLib::fnmatch($pattern, $fileObject->getName())) {
+					$filesObjects[] = $fileObject;
+				}
+			}
+			if ($flags & AdvancedPathLib::GLOB_DIR_FIRST) {
+				$filesObjectsOrdered = array();
+				//looking for directories
+				foreach($filesObjects as $i => $fileObject) {
+					if ($fileObject->isDirectory()) {
+						$filesObjectsOrdered[] = $fileObject;
+					}
+				}
+				//looking for files and links
+				foreach($filesObjects as $i => $fileObject) {
+					if ($fileObject->isFile()) {
+						$filesObjectsOrdered[] = $fileObject;
+					}
+				}
+				$filesObjects = $filesObjectsOrdered;
+			}
+			else {
+				usort($filesObjects, 'EyeOSVirtualTrash::compareFilesAlphabetically');
+			}
+			return $filesObjects;
+		}
+		//SUBFOLDER (handled by EyeOSVirtualFile)
+		else {
+			try {
+				$virtualDataFile = $this->getEyeOSVirtualDataFile();
+				if (!is_object($virtualDataFile)) {
+					return false;	//TODO: exception
+				}
+				return $virtualDataFile->listFiles($pattern, $flags);
+			}
+			catch(Exception $e) {
+				throw new Exception('EyeOSVirtualTrash->listFiles(): Unable to list files in subdirectory "'.$this->path.'"'
+									."\n --- ".$e->getMessage());
+			}
+		}
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory has been successfully created, FALSE otherwise
+	 */
+	/*public function mkdir($mode=0777) {
+		//TODO
+	}*/
+	
+	/**
+	 * @return boolean TRUE if the directory and all the needed parent ones have been
+	 * successfully created, FALSE otherwise
+	 */
+	/*public function mkdirs($mode=0777) {
+		//TODO
+	}*/
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully moved, FALSE otherwise
+	 */
+	public function moveTo(AbstractFile $file) {
+		$virtualDataFile = $this->getEyeOSVirtualDataFile();
+		if (!is_object($virtualDataFile)) {
+			return false;	//TODO: exception
+		}
+		if ($virtualDataFile->moveTo($file)) {
+			return parent::delete();
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public function putContents($data) {
+		throw new Exception('EyeOSVirtualTrash->putContents(): Operation not supported "'.$this->path.'". Use setInfo() instead');
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully renamed, FALSE otherwise
+	 */
+	public function renameTo($newName) {
+		throw new Exception('EyeOSVirtualTrash->renameTo(): Operation not supported "'.$this->path.'"');
+	}
+	
+	//###############################################################################
+	//			STATIC METHODS
+	//###############################################################################
+	
+	/**
+	 * @param EyeOSVirtualTrash $a
+	 * @param EyeOSVirtualTrash $b
+	 * @return int
+	 */
+	protected static function compareFilesAlphabetically($a, $b) {
+		return strcasecmp($a->getName() ,$b->getName());
+	}
+	
+	protected static function generateDirname() {
+		return md5(uniqid());
+	}
+	
+	/**
+	 *
+	 * @param string $filename
+	 * @return string
+	 */
+	protected static function generateFilename($filename) {
+		 $filename = utf8_basename($filename);
+		 if (preg_match('/^(.+?_[0-9a-f]{32})\.'.EYEOS_FILE_EXT.'?$/i', $filename, $matches)) {
+		 	return $matches[1].'.'.EYEOS_TRASH_EXT;
+		 }
+		 return false;	//TODO: exception
+	}
+	
+	/**
+	 *
+	 * @param string $filename
+	 * @return string
+	 */
+	protected static function getVirtualFilename($filename) {
+		if (preg_match('/^(.+?)(_[0-9a-f]{32}\.'.EYEOS_TRASH_EXT.')?$/i', $filename, $matches)) {
+			return $matches[1];
+		}
+		return $filename;
+	}
+	
+	protected static function removeRealnameFromPath($path) {
+		$urlParts = AdvancedPathLib::parse_url($path);
+		$urlParts['path'] = AdvancedPathLib::dirname($urlParts['path']).'/'.self::getVirtualFilename(utf8_basename($urlParts['path']));
+		return AdvancedPathLib::buildURL($urlParts);
+		
+	}
+}
+?>

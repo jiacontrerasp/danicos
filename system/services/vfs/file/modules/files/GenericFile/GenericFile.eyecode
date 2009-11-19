@@ -1,0 +1,688 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+/**
+ * This class implements the AbstractFile class for the files transparently handled by PHP.
+ * (local files, sockets, (FTP), HTTP, SSH, ...)
+ * It is designed to be a full featured wrapper to access and manage files with PHP.
+ * 
+ * @author Nanawel
+ * @version 0.2, 15-Dec-2008
+ */
+class GenericFile extends AbstractFile  {
+
+	/**
+	 * @var string
+	 */
+	protected $path;
+	
+	/**
+	 * @var array
+	 * @see GenericFile->clearStatsCache()
+	 */
+	protected $statsCache = array(
+		'isDirectory' => null,				//boolean
+		'isFile' => null,					//boolean
+		'isLink' => null,					//boolean
+		'permissions' => null,				//string
+		'size' => null,						//int
+		'linkTarget' => null				//string
+	);
+	
+	/**
+	 * @param string $path The path to the file (MUST BE A VALID URL)
+	 *                     - file:///home/john/eyeos/users/jn4/john/files/myFile.txt
+	 *                     - file://localhost/home/john/eyeos/users/jn4/john/files/myFile.txt
+	 *                     - file://C:/myFolder/myFile.ext
+	 *                     - ...
+	 * @param mixed $params Additional arguments (could be useful for derivated classes)
+	 */
+	public function __construct($path, $params=null) {
+		$urlParts = AdvancedPathLib::parse_url($path);
+		if ($urlParts === false) {
+			throw new Exception('GenericFile->__construct(): Incorrect path "'.$path.'"');
+		}
+		$this->path = $path;
+	}
+	
+	/**
+	 * @return boolean TRUE if the file can be read by the current user, FALSE otherwise
+	 */
+	public function canRead() {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return is_readable($path);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file can be written by the current user, FALSE otherwise
+	 */
+	public function canWrite() {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return is_writable($path);
+	}
+	
+	/**
+	 * Clear object's internal cache
+	 * (force next call to information getters to fetch *real* data)
+	 * @return void
+	 */
+	public function clearStatsCache() {
+		$this->statsCache['isDirectory'] = null;
+		$this->statsCache['isFile'] = null;
+		$this->statsCache['isLink'] = null;
+		$this->statsCache['permissions'] = null;
+		$this->statsCache['size'] = null;
+		$this->statsCache['linkTarget'] = null;
+	}
+	
+	/**
+	 * @param AbstractFile $file
+	 * @param boolean $foldersFirst
+	 * @return int A negative value if the current file should be placed before $file,
+	 * zero (0) if they are equals, a positive value otherwise
+	 */
+	//public function compareTo(AbstractFile $file, $foldersFirst=false) {}
+	
+	/**
+	 * @param AbstractFile $file The source file to copy from
+	 * @return boolean TRUE if the file has been successfully copied from $file, FALSE if an error occured
+	 * Note: An exception is raised if an important error is detected (the copy of a single file failed),
+	 *       but during a folder copy, a failure during the copy of a single "sub-file" is ignored and no
+	 *       exception is raised.
+	 *       Nevertheless, you can check if the copy was a full success by testing the returned value.
+	 */
+	public function copyFrom(AbstractFile $file, $overwrite=true) {
+		if ($this->isDirectory() && (!$file->isDirectory() || $this->getName() != $file->getName())) {
+			if ($this->getName() != '/' && $file->getName() != '/') {
+				return $this->getChildFile($file->getName())->copyFrom($file, $overwrite);
+			}
+		}
+		if ($this->exists() && !$overwrite) {
+			throw new Exception('GenericFile->copyFrom(): File "'.$this->path.'" exists and can\'t be overwritten');
+		}
+		
+		//FILE or LINK
+		if ($file->isFile() || $file->isLink()) {
+			$srcPath = AdvancedPathLib::getPhpLocalHackPath($file->path);
+			$destPath = AdvancedPathLib::getPhpLocalHackPath($this->path);	
+			if (@copy($srcPath, $destPath)) {
+				return true;
+			}
+			if (!$this->exists() && !$this->createNewFile(true)) {
+				throw new Exception('GenericFile->copyFrom(): Unable to create destination file "'.$this->path.'"');
+			}
+			try {
+				$contents = $file->getContents();
+				$this->putContents($contents);
+				return true;
+			}
+			catch(Exception $e) {
+				throw new Exception('GenericFile->copyFrom(): Unable to transfer files contents "'.$file->path.'" => "'.$this->path.'"'
+									."\n --- ".$e->getMessage());
+			}
+		}
+		//DIRECTORY
+		elseif ($file->isDirectory()) {
+			if ($this->isDirectory() || $this->mkdir()) {
+				$success = true;
+				foreach($file->listFiles() as $subFile) {
+					try {
+						if (!$subFile->copyTo($this)) {
+							$success = false;
+						}
+					}
+					catch(Exception $e) {
+						$success = false;
+					}
+				}
+				return $success;
+			}
+			else {
+				throw new Exception('GenericFile->copyFrom(): Unable to create destination directory "'.$this->path.'"');
+			}
+		}
+		else {
+			throw new Exception('GenericFile->copyFrom(): The source file does not exist "'.$file->path.'"');
+		}
+	}
+	
+	
+	/**
+	 * @param boolean $overwrite Set to TRUE to try overwriting the file if it already exists
+	 * @return boolean TRUE if the file has been successfully created, FALSE otherwise
+	 */
+	public function createNewFile($overwrite=false) {
+		if ($this->exists()) {
+			if ($overwrite) {
+				try {
+					$this->delete();
+				}
+				catch(Exception $e) {
+					throw new Exception('GenericFile->createNewFile(): File "'.$this->path.'" exists and can\'t be overwritten'
+										."\n --- ".$e->getMessage());
+				}
+			}
+			else {
+				throw new Exception('GenericFile->createNewFile(): File "'.$this->path.'" already exists and overwrite option is not set');
+			}
+		}
+		try {
+			$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+			$fp = fopen($path, 'w');
+		}
+		catch(Exception $e) {
+			throw new Exception('GenericFile->createNewFile(): Unable to create file "'.$this->path.'"'
+								."\n --- ".$e->getMessage());
+		}
+		if ($fp === false) {
+			throw new Exception('GenericFile->createNewFile(): Unable to create file "'.$this->path.'", fopen() failed');
+		}
+		fclose($fp);
+		return true;
+	}
+	
+	/**
+	 * @param AbstractFile $target The target file the link will point to
+	 * @param boolean $overwrite
+	 * @return boolean TRUE if the link has been successfully created
+	 * NOTE: Create symbolic links is not available under Windows platforms.
+	 */
+	public function createNewLink(AbstractFile $target, $overwrite=false) {
+		if (AdvancedPathLib::checkCurrentOS('Win')) {
+			throw new Exception('GenericFile->createNewLink(): Link creation is not implemented under Windows');
+		}
+		$linkPath = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		$targetPath = AdvancedPathLib::getPhpLocalHackPath($target->path);
+		if (@symlink($targetPath, $linkPath) === false) {
+			throw new Exception('GenericFile->createNewLink(): Link creation failed for "'.$linkPath.'"');
+		}
+		return true;
+	}
+	
+	/**
+	 * @param boolean $recursive
+	 * @param boolean $onlyContents In the case of a directory, only delete the files it contains if TRUE
+	 * or the entire directory otherwise
+	 * @return boolean TRUE if the file has been successfully deleted, FALSE otherwise
+	 */
+	public function delete($recursive=false, $onlyContents=false) {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		if ($this->isDirectory()) {
+			$success = true;
+			if ($recursive) {
+				foreach($this->listFiles() as $subFile) {
+					$success &= $subFile->delete(true, false);
+				}
+			}
+			if (!$onlyContents) {
+				return @rmdir($path) & $success;
+			}
+			return $success;
+		}
+		elseif ($this->isFile() || $this->isLink()) {
+			return @unlink($path);
+		}
+		else {
+			return false;	//TODO: exception
+		}
+	}
+	
+	/**
+	 * @return boolean TRUE if the file/folder exists, FALSE otherwise
+	 */
+	public function exists($forceCheck=false) {
+		if ($forceCheck) {
+			clearstatcache();
+		}
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return file_exists($path);
+	}
+	
+	/**
+	 * @return string
+	 */
+	public function getAbsolutePath() {
+		return AdvancedPathLib::buildURL($this->getURLComponents());
+	}
+	
+	/**
+	 * @return mixed The content of the file or FALSE if an error occured
+	 */
+	public function getContents() {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return @file_get_contents($path);
+	}
+	
+	/**
+	 * @return AbstractFile The target file pointed by the link, or FALSE if an error occured
+	 */
+	public function getLinkTarget() {
+		if ($this->isLink()) {
+			$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+			return FSIService::getInstance()->createFile(readlink($path));
+		}
+		return false;	//TODO: exception
+	}
+	
+	/**
+	 * @return string The extension of the file
+	 */
+	public function getExtension() {
+		return pathinfo($this->path, PATHINFO_EXTENSION);
+	}
+	
+	/**
+	 * @return string The name of the file
+	 */
+	public function getName() {
+		if ($this->getPathFromRoot() == '/') {
+			return '/';
+		}
+		return pathinfo($this->path, PATHINFO_BASENAME);
+	}
+	
+	/**
+	 * @return string The path of the file's parent directory
+	 */
+	public function getParentPath() {
+		if (preg_match('/^[a-z]{1}:\/?$/i', AdvancedPathLib::getPhpLocalHackPath($this->path))) {
+			return $this->getAbsolutePath();		//if the path is the root of a Windows drive, return itself
+		}
+		$urlParts = $this->getURLComponents();
+		$urlParts['path'] = AdvancedPathLib::dirname($urlParts['path']);
+		return AdvancedPathLib::buildUrl($urlParts);
+	}
+	
+	/**
+	 * @return GenericFile The file corresponding to the file's parent directory
+	 */
+	public function getParentFile() {
+		return FSIService::getInstance()->createFile($this->getParentPath());
+	}
+	
+	/**
+	 * @return string
+	 */
+	public function getPath() {
+		return $this->path;
+	}
+	
+	/**
+	 * @return string
+	 */
+	public function getPathFromRoot() {
+		$urlParts = $this->getURLComponents();
+		return AdvancedPathLib::realpath($urlParts['path']);
+	}
+	
+	/**
+	 * @return array('dirname' => ..., 'basename' => ..., 'extension' => ..., 'filename' => ..., 'absolutepath' => ...)
+	 */
+	public function getPathInfo() {
+		$pathinfo = pathinfo($this->path);
+		$pathinfo['absolutepath'] = $this->getAbsolutePath();
+		return $pathinfo;
+	}
+	
+	/**
+	 * @param boolean $octal TRUE to return permissions in octal form (755),
+	 *                       FALSE to return them in Unix form (rwxr-xr-x)
+	 * @return mixed The permissions of the file
+	 */
+	public function getPermissions($octal=true) {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		$perms = @fileperms($path);
+		if ($perms == false) {
+			throw new Exception('GenericFile->getPermissions(): Unable to fetch permissions for file "'.$this->path.'"');
+		}
+		if (!$octal) {
+			$perms = self::permsToUnix($perms);
+		}
+		return $perms;
+	}
+	
+	/**
+	 * @return int The size of the file/directory, in bytes (B)
+	 *             Notes: - If the file doesn't exist, the function will return 0
+	 *                    - The recursive process doesn't follow links
+	 */
+	public function getSize($recursive=false) {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		
+		//file
+		if ($this->isFile() || $this->isLink()) {
+			self::clearCache();
+			$size = @filesize($path);
+			if ($size === false) {
+				throw new Exception('GenericFile->getSize(): Unable to get the size of file "'.$this->path.'"');
+			}
+			return $size;
+		}
+		//directory
+		elseif($this->isDirectory()) {
+			$totalSize = 0;
+			foreach($this->listFiles() as $file) {
+				try {
+					if ($file->isFile() || $file->isLink()) {
+						$totalSize += $file->getSize();
+					}
+					elseif ($recursive === true) {
+						$totalSize += $file->getSize(true);
+					}
+				}
+				catch(Exception $e) {
+					continue;
+				}
+			}
+			return $totalSize;
+		}
+		else {
+			return 0;
+		}
+	}
+	
+	/**
+	 * @return array The components forming the URL of the path (@see parse_url() in PHP manual)
+	 */
+	public function getURLComponents() {
+		return AdvancedPathLib::parse_url($this->path);
+	}
+		
+	/**
+	 * @return boolean TRUE if the file is a directory, FALSE otherwise
+	 */
+	public function isDirectory() {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return is_dir($path);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a normal file, FALSE otherwise
+	 */
+	public function isFile() {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return is_file($path);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file is a link, FALSE otherwise
+	 */
+	public function isLink() {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return is_link($path);
+	}
+	
+	/**
+	 * @param string $pattern Filter pattern (same as *NIX shell)
+	 * @param boolean $flags GLOB_NORMAL | GLOB_ONLY_DIR | GLOB_DIR_IGNORE_PATTERN
+	 *                       | GLOB_DIR_FIRST | GLOB_FORCE_SCANDIR | GLOB_CASEINSENSITIVE
+	 * 					(@see class AdvancedPathLib)
+	 * @return array(AbstractFile) The list of the files contained in the "file" itself if $this
+	 * is a directory, or the files contained in the parent directory if $this is a
+	 * normal file
+	 */
+	public function listFiles($pattern='*', $flags=AdvancedPathLib::GLOB_NORMAL) {
+		if ($this->isDirectory()) {
+			$dir = $this;
+		}
+		else {
+			$dir = $this->getParentFile();
+		}
+		$dirPath = $dir->getAbsolutePath();
+		
+		try {
+			$files = AdvancedPathLib::glob($dirPath, $pattern, $flags);
+		}	
+		catch(Exception $e) {
+			throw new Exception('GenericFile->listFiles(): Unable to list files in directory "'.$dirPath.'"'
+								."\n --- ".$e->getMessage());
+		}
+		$filesObjects = array();
+		foreach($files as $filepath) {
+			try {
+				$filesObjects[] = FSIService::getInstance()->createFile($filepath);
+			}
+			catch(Exception $e) {
+				throw new Exception('GenericFile->listFiles(): Unable to create file "'.$filepath.'"'
+									."\n --- ".$e->getMessage());
+			}
+		}
+		return $filesObjects;
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory has been successfully created, FALSE otherwise
+	 */
+	public function mkdir($mode=0777) {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return mkdir($path, $mode);
+	}
+	
+	/**
+	 * @return boolean TRUE if the directory and all the needed parent ones have been
+	 * successfully created, FALSE otherwise
+	 */
+	public function mkdirs($mode=0777) {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return mkdir($path, $mode, true);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully moved, FALSE otherwise
+	 */
+	public function moveTo(AbstractFile $file) {
+		if ($file->isDirectory()) {
+			$target = FSIService::getInstance()->createFile($file->getPath().'/'.$this->getName());
+		}
+		else {
+			$target = $file;
+		}
+		if ($target->isFile()) {
+			//TODO: could be improved by an automatic renaming
+			return false;	//TODO: exception
+		}
+		try {
+			if ($this->copyTo($target)) {
+				$this->delete(true);
+			}
+			$this->path = $target->path;
+		}
+		catch(Exception $e) {
+			throw new Exception('GenericFile->moveTo(): Error occured during file move "'.$this->path.'" => "'.$file->path.'"'
+								."\n --- ".$e->getMessage());
+		}
+		return true;
+	}
+	
+	/**
+	 * @return boolean TRUE if the data has been successfully written to the file, FALSE otherwise
+	 */
+	public function putContents($data) {
+		$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+		return @file_put_contents($path, $data);
+	}
+	
+	/**
+	 * @return boolean TRUE if the file has been successfully renamed, FALSE otherwise
+	 */
+	public function renameTo($newName) {
+		if (!$newName) {
+			return true;
+		}
+		$urlParts = AdvancedPathLib::parse_url($this->path);
+		$urlParts['path'] = AdvancedPathLib::unifyPath(dirname($urlParts['path']).'/'.$newName);
+		$newPath = AdvancedPathLib::buildURL($urlParts);
+		if ($this->exists()) {
+			$path = AdvancedPathLib::getPhpLocalHackPath($this->path);
+			$newPath = AdvancedPathLib::getPhpLocalHackPath($newPath);
+			if (rename($path, $newPath)) {
+				$this->path = $newPath;
+				return true;
+			}
+			throw new Exception('GenericFile->renameTo(): Unable to rename file "'.$this->path.'"');
+		}
+		else {
+			$this->path = $newPath;
+			return true;
+		}
+	}
+	
+	
+	//###############################################################################
+	//			STATIC METHODS
+	//###############################################################################
+	
+	public static function clearCache() {
+		clearstatcache();
+	}
+	
+	public static function permsToOctal($perms) {
+		if (! is_string($perms) || utf8_strlen($perms) != 10) {
+			return false;	//TODO: exception
+		}
+		$mode = 0;
+		if ($perms[1] == 'r') $mode += 0400;
+		if ($perms[2] == 'w') $mode += 0200;
+		if ($perms[3] == 'x') $mode += 0100;
+		elseif ($perms[3] == 's') $mode += 04100;
+		elseif ($perms[3] == 'S') $mode += 04000;
+		
+		if ($perms[4] == 'r') $mode += 040;
+		if ($perms[5] == 'w') $mode += 020;
+		if ($perms[6] == 'x') $mode += 010;
+		elseif ($perms[6] == 's') $mode += 02010;
+		elseif ($perms[6] == 'S') $mode += 02000;
+		
+		if ($perms[7] == 'r') $mode += 04;
+		if ($perms[8] == 'w') $mode += 02;
+		if ($perms[9] == 'x') $mode += 01;
+		elseif ($perms[9] == 't') $mode += 01001;
+		elseif ($perms[9] == 'T') $mode += 01000;
+		
+		return $mode;
+	}
+	
+	public static function permsToUnix($perms) {
+		if (($perms & 0xC000) == 0xC000) {
+			$info = 's';
+		} elseif (($perms & 0xA000) == 0xA000) {
+			$info = 'l';
+		} elseif (($perms & 0x8000) == 0x8000) {
+			$info = '-';
+		} elseif (($perms & 0x6000) == 0x6000) {
+			$info = 'b';
+		} elseif (($perms & 0x4000) == 0x4000) {
+			$info = 'd';
+		} elseif (($perms & 0x2000) == 0x2000) {
+			$info = 'c';
+		} elseif (($perms & 0x1000) == 0x1000) {
+			$info = 'p';
+		} else {
+			$info = 'u';
+		}
+		
+		//owner
+		$info .= (($perms & 0x0100) ? 'r' : '-');
+		$info .= (($perms & 0x0080) ? 'w' : '-');
+		$info .= (($perms & 0x0040) ? (($perms & 0x0800) ? 's' : 'x' ) : (($perms & 0x0800) ? 'S' : '-'));
+		
+		//group
+		$info .= (($perms & 0x0020) ? 'r' : '-');
+		$info .= (($perms & 0x0010) ? 'w' : '-');
+		$info .= (($perms & 0x0008) ? (($perms & 0x0400) ? 's' : 'x' ) : (($perms & 0x0400) ? 'S' : '-'));
+		
+		//others
+		$info .= (($perms & 0x0004) ? 'r' : '-');
+		$info .= (($perms & 0x0002) ? 'w' : '-');
+		$info .= (($perms & 0x0001) ? (($perms & 0x0200) ? 't' : 'x' ) : (($perms & 0x0200) ? 'T' : '-'));
+		
+		return $info;
+	}
+	
+	/**
+	 * Examples of possible values for $path (non-exhaustive list):
+	 * LOCAL FILES:
+	 * 		- /myFolder/myFile.ext								(absolute path, *NIX)
+	 * 		- C:/myFolder/myFile.ext							(absolute path, Windows, RECOMMENDED)
+	 * 		- C:\\myFolder\\myFile.ext							(absolute path, Windows alternative 1)
+	 * 		- C:\myFolder\myFile.ext							(absolute path, Windows alternative 2, NOT RECOMMENDED)
+	 * 		- ./myFolder/myFile.ext								(relative path, *NIX/Windows)
+	 * 		- .\\myFolder\\myFile.ext							(relative path, Windows)
+	 * 		- .\myFolder\myFile.ext								(relative path, Windows alternative, NOT RECOMMENDED) 
+	 * 		- file:///myFolder/myFile.ext						(absolute URL, *NIX)
+	 * 		- file://localhost/myFolder/myFile.ext				(absolute URL with explicit host, *NIX)
+	 * 		- file:///myFolder2/../myFolder/myFile.ext			(relative URL, *NIX)
+	 * 		- file:///C:/myFolder/myFile.ext					(absolute URL, Windows)
+	 * 		- file://localhost/C:/myFolder/myFile.ext			(absolute URL with explicit host, Windows)
+	 * REMOTE FILES (examples here with FTP):
+	 * 		- ftp://myhost/myFolder/myFile.ext					(absolute URL, implicit anonymous user, implicit port)
+	 * 		- ftp://myhost:21/myFolder/myFile.ext				(absolute URL, implicit anonymous connection)
+	 * 		- ftp://192.168.1.210:21/myFolder/myFile.ext		(absolute URL, implicit anonymous connection)
+	 * 		- ftp://user@myhost:21/myFolder/myFile.ext			(absolute URL, explicit user without password)
+	 * 		- ftp://user:password@myhost:21/myFolder/myFile.ext	(absolute URL)
+	 * 		- ftp://myhost/myFolder2/../myFolder/myFile.ext		(relative URL)
+	 * 
+	 * !! FORBIDDEN VALUES !!:
+	 * 		- file://./myFolder/myFile.ext						(pseudo-relative URL)
+	 * 		- file://myFolder/myFile.ext						(missing leading slash '/' after scheme 'file://'. Note: this URL can be valid... if the host is named 'myFolder'!)
+	 * 		- /myFolder/myFile.ext								(WINDOWS ONLY: pseudo-absolute path, missing drive letter)
+	 * 		- file://127.0.0.1/C:/myFolder/myFile.ext			(IP adress given for localhost normal filesystem, PHP limitation)
+	 *
+	 * @params string $path
+	 * @param array $params Special parameters for the target object constructor
+	 * @return AbstractFile
+	 */
+	/*public static function createFile($path, $params=null) {		
+		$urlParts = AdvancedPathLib::parse_url($path);
+		if ($urlParts === false) {
+			throw new Exception('GenericFile::createFile(): Invalid path "'.$path.'"');
+		}
+		
+		//FTP
+		if ($urlParts['scheme'] == 'ftp' || $urlParts['scheme'] == 'ftps') {
+			require_once(EYEOSFILE_CLASSES_PATH.'FTPFile'.EYE_CODE_EXTENSION);
+			return new FTPFile($path, $params);
+		}
+		else {
+			//EYEOS
+			if($urlParts['scheme'] == 'file' && AdvancedPathLib::resolvePath($urlParts['path'], EYE_ROOT)) {
+				require_once(EYEOSFILE_CLASSES_PATH.'EyeOSFile'.EYE_CODE_EXTENSION);
+				return EyeOSFile::createFile($path, $params);
+			}
+			//...
+			elseif(false) {
+				
+			}
+			//elseif {
+				//Out of eyeOS, FTP, SMB, ...
+			//}
+			//OTHER FILE
+			else {
+				//unknown file type, try to handle with default class
+				return new GenericFile($path, $params);
+			}
+		}
+	}*/
+}
+?>

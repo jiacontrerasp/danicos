@@ -1,0 +1,424 @@
+<?php
+/*
+                                  ____   _____ 
+                                 / __ \ / ____|
+                  ___ _   _  ___| |  | | (___  
+                 / _ \ | | |/ _ \ |  | |\___ \ 
+                |  __/ |_| |  __/ |__| |____) |
+                 \___|\__, |\___|\____/|_____/ 
+                       __/ |                   
+                      |___/              2.0
+
+                     Web Operating System
+                           eyeOS.org
+
+             eyeOS Engineering Team - eyeOS.org/whoarewe
+
+     eyeOS is released under the GNU Affero General Public License Version 3 (AGPL3)
+            provided with this release in license.txt
+             or via web at gnu.org/licenses/agpl-3.0.txt
+
+        Copyright 2005-2008 eyeOS Team (team@eyeos.org)
+
+*/
+
+define('EYEOSFILE_URL_HOST', 'localhost');
+define('EYEOSFILE_URL_LOCATOR_CHAR', '~');
+define('EYEOSFILE_URL_SCHEME_USERFILES', 		'home');
+define('EYEOSFILE_URL_SCHEME_USERCONF',			'user-conf');
+define('EYEOSFILE_URL_SCHEME_USERTRASH',		'trash');
+define('EYEOSFILE_URL_SCHEME_APPCONF',			'app-conf');
+define('EYEOSFILE_URL_SCHEME_SYSTEM',			'sys');
+define('EYEOSFILE_URL_SCHEME_GROUPFILES',		'group');
+define('EYEOSFILE_URL_SCHEME_GROUPCONF',		'group-conf');
+define('EYEOSFILE_URL_SCHEME_EYEOS',			'eyeos');
+
+/**
+ * This class extends FSIModule and implements VPModule for managing virtual paths
+ * within the eyeOS filesystem.
+ * 
+ * @author Nanawel
+ * @version 0.1
+ */
+class EyeOSVP_FSIModule extends FSIModule implements VPModule {
+	
+	private static $instance = null;
+	
+	public static function getInstance() {
+		if (is_null(self::$instance)) {
+			self::$instance = new self();
+			self::$instance->load();
+		}
+		return self::$instance;
+	}
+	
+	public function load($params=null) {
+		$this->moduleName = 'EyeOSVP';
+		$this->modulePath = FSI_VPMODULES_DIR;
+	}
+	
+	public function unload() {
+		
+	}
+	
+	/**
+	 * 
+	 * @param array $urlParts
+	 * @param array $params
+	 * @return GenericFile
+	 */
+	public function createFileFromUrlParts($urlParts, $params=null) {
+		$modules = $this->getSubModules();
+		foreach($modules as $module) {
+			$file = $module->createFileFromUrlParts($urlParts, $params);
+			if (!is_null($file)) {
+				return $file;
+			}
+		}
+		if (self::isVirtualPath($urlParts)) {
+			$path = self::toRealpath(AdvancedPathLib::buildURL($urlParts));
+			return FSIService::getInstance()->createFile($path, $params);
+		}
+		return null;
+	}
+	
+	public function getVirtualPathFromUrlParts($urlParts, $params=null) {
+		$modules = $this->getSubModules();
+		foreach($modules as $module) {
+			$virtualPath = $module->getVirtualPathFromUrlParts($urlParts, $params);
+			if (!is_null($virtualPath)) {
+				return $virtualPath;
+			}
+		}
+		return self::toVirtualPath(AdvancedPathLib::buildURL($urlParts));
+	}
+	
+	public function getRealPathFromUrlParts($urlParts, $params=null) {
+		$modules = $this->getSubModules();
+		foreach($modules as $module) {
+			$realPath = $module->getRealPathFromUrlParts($urlParts, $params);
+			if (!is_null($realPath)) {
+				return $realPath;
+			}
+		}
+		return self::toRealpath(AdvancedPathLib::buildURL($urlParts));
+	}
+	
+	//#####################################################################################
+	//
+	//#####################################################################################
+	
+	/**
+	 * Note: Should be const, but still impossible with PHP
+	 * @var array
+	 */
+	public static $virtualPathSchemes = array(
+		EYEOSFILE_URL_SCHEME_USERFILES,
+		EYEOSFILE_URL_SCHEME_USERCONF,
+		EYEOSFILE_URL_SCHEME_USERTRASH,
+		EYEOSFILE_URL_SCHEME_APPCONF,
+		EYEOSFILE_URL_SCHEME_SYSTEM,
+		EYEOSFILE_URL_SCHEME_GROUPFILES,
+		EYEOSFILE_URL_SCHEME_GROUPCONF,
+		EYEOSFILE_URL_SCHEME_EYEOS
+	);
+	
+	
+	protected static function isVirtualPath($urlParts) {
+		if (in_array($urlParts['scheme'], self::$virtualPathSchemes)) {
+			return true;
+		}
+		return false;
+	}
+	
+	/**
+	 * [virtual_path] => [real_path]
+	 *
+	 * @param string $virtualPath
+	 */
+	private static function toRealpath($virtualPath) {
+		$urlParts = AdvancedPathLib::parse_url($virtualPath, AdvancedPathLib::OS_UNIX);
+		if ($urlParts === false) {
+			throw new Exception('EyeOSVP_FSIModule::toRealpath(): Invalid path "'.$virtualPath.'", parsing failed');
+		}
+		
+		if ($urlParts['scheme'] != 'file') {
+			//checking host (since eyeOS is necessary on the localhost machine, any other host is invalid)
+			if (isset($urlParts['host'])) {
+				//if the detected hostname starts with '~' we move the trailing string it to the path
+				if (utf8_substr($urlParts['host'], 0, 1) == EYEOSFILE_URL_LOCATOR_CHAR) {
+					$urlParts['path'] = AdvancedPathLib::unifyPath('/'.$urlParts['host'].'/'.$urlParts['path']);
+				}
+				elseif (strcasecmp($urlParts['host'], 'localhost') != 0 && $urlParts['host'] != '127.0.0.1') {
+					if ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_SYSTEM) {
+						$urlParts['path'] = AdvancedPathLib::unifyPath('/'.$urlParts['host'].'/'.$urlParts['path']);
+					}
+					else {
+						throw new Exception('EyeOSVP_FSIModule::toRealpath(): Invalid host in URL "'.$virtualPath.'". Must be localhost or 127.0.0.1');
+					}
+				}
+			}
+			unset($urlParts['host']);
+			
+			$cleanPath = true;
+			//MY EYEOS
+			if ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_EYEOS) {
+				$cleanPath = false;
+			}
+			//USER FILES
+			elseif ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_USERFILES) {
+				self::toRealpath_userFiles($urlParts);
+			}
+			//GROUP FILES
+			elseif ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_GROUPFILES) {
+				self::toRealpath_groupFiles($urlParts);
+			}
+			//USER TRASH
+			elseif ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_USERTRASH) {
+				self::toRealpath_userTrash($urlParts);
+			}
+			//USER CONF
+			elseif ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_USERCONF) {
+				self::toRealpath_userConf($urlParts);
+			}
+			//GROUP CONF
+			elseif ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_GROUPCONF) {
+				self::toRealpath_groupConf($urlParts);
+			}
+			//APP CONF
+			elseif ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_APPCONF) {
+				self::toRealpath_appConf($urlParts);
+			}
+			//SYSTEM
+			elseif ($urlParts['scheme'] == EYEOSFILE_URL_SCHEME_SYSTEM) {
+				self::toRealpath_system($urlParts);
+			}
+			//UNKNOWN => ERROR
+			else {
+				throw new Exception('EyeOSVP_FSIModule::toRealpath(): Unable to find a virtual handler for path "'.$virtualPath.'"');
+			}
+		}
+		if ($cleanPath) {
+			$urlParts['path'] = AdvancedPathLib::unifyPath(AdvancedPathLib::realpath($urlParts['path']));
+		}
+		return AdvancedPathLib::buildURL($urlParts);
+	}
+	
+	private static function toRealpath_userFiles(&$urlParts) {
+		if (!preg_match('`^/('.EYEOSFILE_URL_LOCATOR_CHAR.'(\w+))?(.*)`', $urlParts['path'], $matches)) {
+			throw new Exception('EyeOSVP_FSIModule::toRealpath_userFiles(): Missing username in path "'.$urlParts['path'].'". Must be "/'.EYEOSFILE_URL_LOCATOR_CHAR.'username/my/path..."');
+		}
+		if (!$matches[1] || !$matches[2]) {
+			global $currentUser;
+			$username = $currentUser;
+		}
+		else {
+			$username = $matches[2];
+		}
+		$path = $matches[3];
+		$newPath = um('getUserDir', array($username)).'/'.FILES_USER_DIR.'/'.$path;
+		
+		$urlParts['scheme'] = 'file';
+		$urlParts['path'] = $newPath;
+	}
+	
+	private static function toRealpath_groupFiles(&$urlParts) {
+		if (!preg_match('`^/'.EYEOSFILE_URL_LOCATOR_CHAR.'(\w+)(.*)`', $urlParts['path'], $matches)) {
+			throw new Exception('EyeOSVP_FSIModule::toRealpath_groupFiles(): Missing groupname in path "'.$urlParts['path'].'". Must be "/'.EYEOSFILE_URL_LOCATOR_CHAR.'groupname/my/path..."');
+		}
+		$groupname = $matches[1];
+		$path = $matches[2];
+		$newPath = EYE_ROOT.'/'.GROUPS_DIR.'/'.$groupname.'/'.FILES_GROUP_DIR.'/'.$path;
+		
+		$urlParts['scheme'] = 'file';
+		$urlParts['path'] = $newPath;
+	}
+	
+	private static function toRealpath_userTrash(&$urlParts) {
+		if (!preg_match('`^/('.EYEOSFILE_URL_LOCATOR_CHAR.'(\w+))?(.*)`', $urlParts['path'], $matches)) {
+			throw new Exception('EyeOSVP_FSIModule::toRealpath_userTrash(): Missing username in path "'.$urlParts['path'].'". Must be "/'.EYEOSFILE_URL_LOCATOR_CHAR.'username/my/path..."');
+		}
+		if (!$matches[1] || !$matches[2]) {
+			global $currentUser;
+			$username = $currentUser;
+		}
+		else {
+			$username = $matches[2];
+		}
+		$path = $matches[3];
+		$newPath = um('getUserDir', array($username)).'/'.TRASH_USER_DIR.'/'.$path;
+		
+		$urlParts['scheme'] = 'file';
+		$urlParts['path'] = $newPath;
+	}
+	
+	private static function toRealpath_userConf(&$urlParts) {
+		if (!preg_match('`^/('.EYEOSFILE_URL_LOCATOR_CHAR.'(\w+))?(.*)`', $urlParts['path'], $matches)) {
+			throw new Exception('EyeOSVP_FSIModule::toRealpath_userConf(): Missing username in path "'.$urlParts['path'].'". Must be "/'.EYEOSFILE_URL_LOCATOR_CHAR.'username/my/path..."');
+		}
+		if (!$matches[1] || !$matches[2]) {
+			global $currentUser;
+			$username = $currentUser;
+		}
+		else {
+			$username = $matches[2];
+		}
+		$path = $matches[3];
+		$newPath = um('getUserDir', array($username)).'/'.CONF_USER_DIR.'/'.$path;
+		
+		$urlParts['scheme'] = 'file';
+		$urlParts['path'] = $newPath;
+	}
+	
+	private static function toRealpath_groupConf(&$urlParts) {
+		if (!preg_match('`^/'.EYEOSFILE_URL_LOCATOR_CHAR.'(\w+)(.*)`', $urlParts['path'], $matches)) {
+			throw new Exception('EyeOSVP_FSIModule::toRealpath_groupConf(): Missing groupname in path "'.$urlParts['path'].'". Must be "/'.EYEOSFILE_URL_LOCATOR_CHAR.'groupname/my/path..."');
+		}
+		$groupname = $matches[1];
+		$path = $matches[2];
+		$newPath = EYE_ROOT.'/'.GROUPS_DIR.'/'.$groupname.'/'.CONF_GROUP_DIR.'/'.$path;
+		
+		$urlParts['scheme'] = 'file';
+		$urlParts['path'] = $newPath;
+	}
+	
+	private static function toRealpath_appConf(&$urlParts) {
+		if (!preg_match('`^/'.EYEOSFILE_URL_LOCATOR_CHAR.'(\w+)(.*)`', $urlParts['path'], $matches)) {
+			throw new Exception('EyeOSVP_FSIModule::toRealpath_appConf(): Missing appname in path "'.$urlParts['path'].'". Must be "/'.EYEOSFILE_URL_LOCATOR_CHAR.'appname/my/path..."');
+		}
+		$appname = $matches[1];
+		$path = $matches[2];
+		$newPath = EYE_ROOT.'/'.APP_DIR.'/'.APP_CONF_SHARE.'/'.$appname.$path;
+		
+		$urlParts['scheme'] = 'file';
+		$urlParts['path'] = $newPath;
+	}
+	
+	private static function toRealpath_system(&$urlParts) {
+		$urlParts['scheme'] = 'file';
+		$urlParts['path'] = AdvancedPathLib::realpath(EYE_ROOT).'/'.$urlParts['path'];
+	}
+	
+	/**
+	 * [real_path] => [virtual_path]
+	 *
+	 * @param string $path
+	 * @exception Matching virtual path not found
+	 */
+	private static function toVirtualPath($path) {
+		$urlParts = AdvancedPathLib::parse_url($path);
+		if ($urlParts === false) {
+			throw new Exception('EyeOSVP_FSIModule::toVirtualPath(): Invalid path "'.$path.'", parsing failed');
+		}
+		if (in_array($urlParts['scheme'], self::$virtualPathSchemes)) {
+			return $path;
+		}
+		$forceSystem = false;
+		
+		if ($urlParts['scheme'] == 'file' && AdvancedPathLib::resolvePath($urlParts['path'], EYE_ROOT)) {
+			//USERS DIRECTORY
+			$userDir_resolvedPath = AdvancedPathLib::resolvePath($urlParts['path'], EYE_ROOT.'/'.USERS_DIR, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+			if ($userDir_resolvedPath) {
+				//USER FILES
+				if(preg_match('`^/.{2}[0-9]{1}/(.+)/'.FILES_USER_DIR.'(.*)$`', $userDir_resolvedPath, $matches)) {
+					$username = $matches[1];
+					$newPath = $matches[2];
+					
+					$urlParts['scheme'] = EYEOSFILE_URL_SCHEME_USERFILES;
+					$urlParts['host'] = 'localhost';
+					$urlParts['path'] = '/'.EYEOSFILE_URL_LOCATOR_CHAR.$username.'/'.$newPath;
+					
+					$urlParts['path'] = AdvancedPathLib::unifyPath($urlParts['path']);		
+					return AdvancedPathLib::buildURL($urlParts);
+				}
+				//USER CONF
+				elseif (preg_match('`^/.{2}[0-9]{1}/(.+)/'.CONF_USER_DIR.'(.*)$`', $userDir_resolvedPath, $matches)) {
+					$username = $matches[1];
+					$newPath = $matches[2];
+					
+					$urlParts['scheme'] = EYEOSFILE_URL_SCHEME_USERCONF;
+					$urlParts['host'] = 'localhost';
+					$urlParts['path'] = '/'.EYEOSFILE_URL_LOCATOR_CHAR.$username.'/'.$newPath;
+					
+					$urlParts['path'] = AdvancedPathLib::unifyPath($urlParts['path']);		
+					return AdvancedPathLib::buildURL($urlParts);
+				}
+				//USER TRASH
+				elseif (preg_match('`^/.{2}[0-9]{1}/(.+)/'.TRASH_USER_DIR.'(.*)$`', $userDir_resolvedPath, $matches)) {
+					$username = $matches[1];
+					$newPath = $matches[2];
+					
+					$urlParts['scheme'] = EYEOSFILE_URL_SCHEME_USERTRASH;
+					$urlParts['host'] = 'localhost';
+					$urlParts['path'] = '/'.EYEOSFILE_URL_LOCATOR_CHAR.$username.'/'.$newPath;
+					
+					$urlParts['path'] = AdvancedPathLib::unifyPath($urlParts['path']);		
+					return AdvancedPathLib::buildURL($urlParts);
+				}
+				//given path is in the users directory, but in none of the previous exact places
+				else {
+					$forceSystem = true;
+				}
+			}
+			//GROUPS DIRECTORY
+			$groupDir_resolvedPath = AdvancedPathLib::resolvePath($urlParts['path'], EYE_ROOT.'/'.GROUPS_DIR, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+			if(!$forceSystem && $groupDir_resolvedPath) {
+				//GROUP FILES
+				if(preg_match('`^/(.+)/'.FILES_GROUP_DIR.'(.*)$`', $groupDir_resolvedPath, $matches)) {
+					$groupname = $matches[1];
+					$newPath = $matches[2];
+					
+					$urlParts['scheme'] = EYEOSFILE_URL_SCHEME_GROUPFILES;
+					$urlParts['host'] = 'localhost';
+					$urlParts['path'] = '/'.EYEOSFILE_URL_LOCATOR_CHAR.$groupname.'/'.$newPath;
+					
+					$urlParts['path'] = AdvancedPathLib::unifyPath($urlParts['path']);		
+					return AdvancedPathLib::buildURL($urlParts);
+				}
+				//GROUP CONF
+				elseif (preg_match('`^/(.+)/'.CONF_USER_DIR.'(.*)$`', $groupDir_resolvedPath, $matches)) {
+					$groupname = $matches[1];
+					$newPath = $matches[2];
+					
+					$urlParts['scheme'] = EYEOSFILE_URL_SCHEME_GROUPCONF;
+					$urlParts['host'] = 'localhost';
+					$urlParts['path'] = '/'.EYEOSFILE_URL_LOCATOR_CHAR.$groupname.'/'.$newPath;
+					
+					$urlParts['path'] = AdvancedPathLib::unifyPath($urlParts['path']);		
+					return AdvancedPathLib::buildURL($urlParts);
+				}
+				//given path is in the groups directory, but in none of the previous exact places
+				else {
+					$forceSystem = true;
+				}
+			}
+			//APPS DIRECTORY
+			$appsDir_resolvedPath = AdvancedPathLib::resolvePath($urlParts['path'], EYE_ROOT.'/'.APP_DIR.'/'.APP_CONF_SHARE, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+			if(!$forceSystem && $appsDir_resolvedPath) {
+				//APP CONF
+				if(preg_match('`^/(.+)/?(.*)$`', $appsDir_resolvedPath, $matches)) {
+					$appname = $matches[1];
+					$newPath = $matches[2];
+					
+					$urlParts['scheme'] = EYEOSFILE_URL_SCHEME_APPCONF;
+					$urlParts['host'] = 'localhost';
+					$urlParts['path'] = '/'.EYEOSFILE_URL_LOCATOR_CHAR.$appname.'/'.$newPath;
+					
+					$urlParts['path'] = AdvancedPathLib::unifyPath($urlParts['path']);		
+					return AdvancedPathLib::buildURL($urlParts);
+				}
+			}
+			
+			//SYSTEM
+			$urlParts['scheme'] = EYEOSFILE_URL_SCHEME_SYSTEM;
+			$urlParts['host'] = 'localhost';
+			$urlParts['path'] = AdvancedPathLib::resolvePath($urlParts['path'], EYE_ROOT, AdvancedPathLib::RESOLVEPATH_RETURN_REFDIR_RELATIVE);
+			$urlParts['path'] = AdvancedPathLib::unifyPath($urlParts['path']);		
+			return AdvancedPathLib::buildURL($urlParts);
+		}
+		$urlParts['path'] = AdvancedPathLib::unifyPath($urlParts['path']);		
+		return AdvancedPathLib::buildURL($urlParts);
+	}
+}
+
+?>

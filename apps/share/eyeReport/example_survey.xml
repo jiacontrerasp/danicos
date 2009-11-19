@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<eyeReport>
+	<survey>
+		<id>eyereport_example_survey</id>
+		<title>Survey Title</title>
+		<description>Description here...</description>
+		<anonymous>true</anonymous>
+		<displayOnceOnly>true</displayOnceOnly>
+		
+		<resultsStorage>
+			<method>Xml</method>
+			<params>
+				<filename>example_survey_results.xml</filename>
+			</params>
+		</resultsStorage>
+
+		<page>
+			<id>example_survey_page1</id>
+			<title>page title</title>
+			<description>page desc</description>
+			
+			<question>
+				<id>example_survey_q1</id>
+				<text>What do you think about ...?</text>
+				<answer>
+					<type>SimpleText</type>
+					<params>
+						<text>This is an initial text...</text>
+					</params>
+				</answer>
+			</question>
+			
+			<question>
+				<id>example_survey_q2</id>
+				<text>Do you think that the product is:</text>
+				<answer>
+					<type>MultipleChoice</type>
+					<params>
+						<choice>
+							<text>Reliable</text>
+						</choice>
+						<choice>
+							<text>Friendly</text>
+						</choice>
+						<choice>
+							<text>Ugly</text>
+						</choice>
+						<choice>
+							<text>Common</text>
+						</choice>
+						<choice>
+							<text>... a duck!</text>
+						</choice>
+						<choice>
+							<other />
+							<text>Other...</text>
+						</choice>
+					</params>
+				</answer>
+			</question>
+			
+			<question>
+				<id>example_survey_q3</id>
+				<text>Rate the product:</text>
+				<answer>
+					<type>Select</type>
+					<params>
+						<choice>
+							<text>Very bad</text>
+							<value>0</value>
+						</choice>
+						<choice>
+							<text>Bad</text>
+							<value>1</value>
+						</choice>
+						<choice>
+							<text>Average</text>
+							<value>2</value>
+						</choice>
+						<choice>
+							<text>Quite good</text>
+							<value>3</value>
+							<selected />
+						</choice>
+						<choice>
+							<text>Good</text>
+							<value>4</value>
+						</choice>
+						<choice>
+							<text>Excellent!</text>
+							<value>5</value>
+						</choice>
+					</params>
+				</answer>
+			</question>
+		</page>
+	</survey>
+</eyeReport>

@@ -1,0 +1,10 @@
+<package>
+	<name>eyeNotes</name>
+	<category>File Management</category>
+	<version>2.0</version>
+	<description>Simple text editor</description>
+	<author>eyeOS Team</author>
+	<license>GPL</license>
+	<type>Application</type>
+	<icon>index.php?extern=icons/48x48/eyeNotes.png&amp;theme=1</icon>
+</package>
